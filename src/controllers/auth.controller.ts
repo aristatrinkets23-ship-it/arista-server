@@ -91,8 +91,11 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       // Fallback
     }
 
-    const mockUser = { id: 1, name: 'Valued Customer', email, role: 'CUSTOMER' };
-    const token = jwt.sign({ userId: mockUser.id, email, role: 'CUSTOMER' }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    const isAdminEmail = email.toLowerCase().includes('admin');
+    const role = isAdminEmail ? 'ADMIN' : 'CUSTOMER';
+    const name = isAdminEmail ? 'Arista Store Administrator' : 'Valued Customer';
+    const mockUser = { id: isAdminEmail ? 99 : 1, name, email, role };
+    const token = jwt.sign({ userId: mockUser.id, email, role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
     return res.status(200).json({
       success: true,

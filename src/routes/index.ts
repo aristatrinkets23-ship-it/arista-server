@@ -2,7 +2,17 @@ import { Router } from 'express';
 import { getProducts, getProductBySlug, getCategories } from '../controllers/product.controller';
 import { registerUser, loginUser, getCurrentUser } from '../controllers/auth.controller';
 import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber } from '../controllers/order.controller';
-import { getAdminMetrics, createProduct, updateProduct, deleteProduct, updateOrderStatus } from '../controllers/admin.controller';
+import {
+  getAdminMetrics,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  updateOrderStatus,
+  verifyAdmin,
+  updateAdminProfile,
+  createAdminUser
+} from '../controllers/admin.controller';
+import { authenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -31,11 +41,17 @@ router.post('/orders/razorpay-order', createPaymentOrder);
 router.post('/orders/verify-payment', verifyPayment);
 router.get('/orders/:orderNumber', getOrderByNumber);
 
+// Admin Protection Middleware (Applied to all /admin routes)
+const adminAuthStack = [authenticateJwt, requireRole(['ADMIN', 'SUPER_ADMIN'])];
+
 // Admin Routes
-router.get('/admin/dashboard', getAdminMetrics);
-router.post('/admin/products', createProduct);
-router.put('/admin/products/:id', updateProduct);
-router.delete('/admin/products/:id', deleteProduct);
-router.put('/admin/orders/:id/status', updateOrderStatus);
+router.get('/admin/verify', adminAuthStack, verifyAdmin);
+router.get('/admin/dashboard', adminAuthStack, getAdminMetrics);
+router.put('/admin/profile', adminAuthStack, updateAdminProfile);
+router.post('/admin/users', adminAuthStack, createAdminUser);
+router.post('/admin/products', adminAuthStack, createProduct);
+router.put('/admin/products/:id', adminAuthStack, updateProduct);
+router.delete('/admin/products/:id', adminAuthStack, deleteProduct);
+router.put('/admin/orders/:id/status', adminAuthStack, updateOrderStatus);
 
 export default router;
