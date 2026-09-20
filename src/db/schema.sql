@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS `users` (
   INDEX `idx_user_role` (`role`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- DEFAULT SUPER ADMIN CREDENTIALS (Email: admin@aristatrinkets.com / Password: admin123)
+INSERT IGNORE INTO `users` (`id`, `name`, `email`, `password`, `role`) VALUES
+(1, 'Arista Atelier Administrator', 'admin@aristatrinkets.com', '$2b$10$Ma0BxZV/lLcKHz3CUsIiB.7CslblkKouOTu6jyMJQ8k0PINhw1i9O', 'SUPER_ADMIN');
+
 -- 2. CATEGORIES TABLE
 CREATE TABLE IF NOT EXISTS `categories` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -134,21 +138,3 @@ CREATE TABLE IF NOT EXISTS `order_items` (
   `total_price` DECIMAL(10, 2) NOT NULL,
   FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================================
--- SEED DATA SETUP
--- ============================================================================
-
-INSERT INTO `categories` (`id`, `name`, `slug`, `description`, `image`, `item_count`) VALUES
-(1, 'Rings', 'rings', 'Handcrafted solitaire, halo, and eternity rings set in 18K gold.', '/assets/images/placeholder-rings.svg', 42),
-(2, 'Necklaces', 'necklaces', 'Elegant chokers, pendants, and layered chains designed to accentuate necklines.', '/assets/images/placeholder-necklaces.svg', 36),
-(3, 'Earrings', 'earrings', 'Luminous freshwater pearl drop earrings, diamond studs, and gold hoops.', '/assets/images/placeholder-earrings.svg', 28),
-(4, 'Bracelets', 'bracelets', 'Timeless diamond cuff bracelets, delicate tennis chains, and bangles.', '/assets/images/placeholder-bracelets.svg', 24)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
-
-INSERT INTO `products` (`id`, `category_id`, `name`, `slug`, `price`, `compare_at_price`, `badge`, `metal_type`, `gemstone`, `in_stock`, `stock_quantity`, `description`, `materials`, `care_guide`, `shipping_info`, `image`) VALUES
-(1, 1, 'Eternal Solitaire Diamond Ring', 'eternal-solitaire-diamond-ring', 45000.00, 52000.00, 'FEATURED', '18K Warm Gold', 'Diamond (1.2 ct)', 1, 12, 'A brilliant 1.2-carat ethically sourced round solitaire diamond crowned upon an 18K warm gold band with delicate diamond micro-pave detailing.', '18K Warm Gold, Ethically Sourced Diamond', 'Clean gently with lukewarm soapy water and a soft microfiber cloth.', 'Complimentary insured express delivery within 3-5 business days.', '/assets/images/placeholder-rings.svg'),
-(2, 2, 'Royal Heritage Gold Choker', 'royal-heritage-gold-choker', 89000.00, 95000.00, 'NEW', '18K Solid Gold', 'None', 1, 6, 'Inspired by classical royal heritage, this hand-engraved 18K solid gold choker features intricate filigree craftsmanship.', '18K Warm Gold, Filigree Wire Work', 'Avoid contact with perfumes and harsh household chemicals.', 'Complimentary insured express delivery.', '/assets/images/placeholder-necklaces.svg'),
-(3, 3, 'Celestial Pearl Drop Earrings', 'celestial-pearl-drop-earrings', 24500.00, 28000.00, 'SALE', 'Sterling Silver', 'Freshwater Pearl & Diamond', 1, 15, 'Luminous Grade-AAA Japanese Akoya freshwater pearls suspended beneath sparkling star-set brilliant diamond studs.', 'Grade AAA Akoya Pearl, Sterling Silver 925', 'Pearls love natural oils. Put on after cosmetics application.', 'Complimentary insured express delivery.', '/assets/images/placeholder-earrings.svg'),
-(4, 4, 'Classic Diamond Cuff Bracelet', 'classic-diamond-cuff-bracelet', 62000.00, 68000.00, 'BESTSELLER', '18K Warm Gold', 'Diamond (0.45 ct)', 1, 8, 'A sleek open-cuff bracelet featuring twin brilliant diamond solitaire terminals set in warm gold with high polish finish.', '18K Warm Gold, Brilliant Diamonds', 'Wipe down gently after wearing with included polishing cloth.', 'Complimentary insured express delivery.', '/assets/images/placeholder-bracelets.svg')
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);

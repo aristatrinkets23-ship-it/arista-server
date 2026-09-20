@@ -13,7 +13,10 @@ import {
   updateOrderStatus,
   verifyAdmin,
   updateAdminProfile,
-  createAdminUser
+  createAdminUser,
+  getAdminUsers,
+  updateAdminUserPassword,
+  deleteAdminUserById
 } from '../controllers/admin.controller';
 import { authenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
@@ -51,7 +54,10 @@ const adminAuthStack = [authenticateJwt, requireRole(['ADMIN', 'SUPER_ADMIN'])];
 router.get('/admin/verify', adminAuthStack, verifyAdmin);
 router.get('/admin/dashboard', adminAuthStack, getAdminMetrics);
 router.put('/admin/profile', adminAuthStack, updateAdminProfile);
+router.get('/admin/users', adminAuthStack, getAdminUsers);
 router.post('/admin/users', adminAuthStack, createAdminUser);
+router.put('/admin/users/:id/password', adminAuthStack, updateAdminUserPassword);
+router.delete('/admin/users/:id', adminAuthStack, deleteAdminUserById);
 
 // Product Admin Routes
 router.post('/admin/products', adminAuthStack, createProduct);
