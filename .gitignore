@@ -13,6 +13,10 @@ dist/
 *.log
 npm-debug.log*
 
+# Local databases
+*.db
+
 # OS Files
 .DS_Store
 Thumbs.db
+

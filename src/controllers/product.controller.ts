@@ -8,7 +8,7 @@ const fallbackCategories = [
     name: 'Rings',
     slug: 'rings',
     description: 'Handcrafted solitaire, halo, and eternity rings set in 18K gold.',
-    image: '/assets/images/placeholder-rings.svg',
+    image: '/assets/images/slideshow-couple-rings.jpg',
     itemCount: 42
   },
   {
@@ -16,7 +16,7 @@ const fallbackCategories = [
     name: 'Necklaces',
     slug: 'necklaces',
     description: 'Elegant chokers, pendants, and layered chains designed to accentuate necklines.',
-    image: '/assets/images/placeholder-necklaces.svg',
+    image: '/assets/images/slideshow-girl-necklace.jpg',
     itemCount: 36
   },
   {
@@ -24,7 +24,7 @@ const fallbackCategories = [
     name: 'Earrings',
     slug: 'earrings',
     description: 'Luminous freshwater pearl drop earrings, diamond studs, and gold hoops.',
-    image: '/assets/images/placeholder-earrings.svg',
+    image: '/assets/images/slideshow-earrings.jpg',
     itemCount: 28
   },
   {
@@ -32,7 +32,7 @@ const fallbackCategories = [
     name: 'Bracelets',
     slug: 'bracelets',
     description: 'Timeless diamond cuff bracelets, delicate tennis chains, and bangles.',
-    image: '/assets/images/placeholder-bracelets.svg',
+    image: '/assets/images/slideshow-bangles.jpg',
     itemCount: 24
   }
 ];
@@ -54,8 +54,8 @@ const fallbackProducts = [
     materials: '18K Warm Gold, Ethically Sourced Diamond',
     careGuide: 'Clean gently with lukewarm soapy water and a soft microfiber cloth.',
     shippingInfo: 'Complimentary insured express delivery within 3-5 business days.',
-    image: '/assets/images/placeholder-rings.svg',
-    images: ['/assets/images/placeholder-rings.svg', '/assets/images/placeholder-jewellery.svg'],
+    image: '/assets/images/slideshow-couple-rings.jpg',
+    images: ['/assets/images/slideshow-couple-rings.jpg', '/assets/images/slideshow-rings.jpg'],
     specifications: [
       { label: 'Metal', value: '18K Warm Gold' },
       { label: 'Gemstone Weight', value: '1.20 Carat' },
@@ -78,8 +78,8 @@ const fallbackProducts = [
     materials: '18K Warm Gold, Filigree Wire Work',
     careGuide: 'Avoid contact with perfumes and harsh household chemicals.',
     shippingInfo: 'Complimentary insured express delivery.',
-    image: '/assets/images/placeholder-necklaces.svg',
-    images: ['/assets/images/placeholder-necklaces.svg', '/assets/images/placeholder-jewellery.svg'],
+    image: '/assets/images/slideshow-girl-necklace.jpg',
+    images: ['/assets/images/slideshow-girl-necklace.jpg', '/assets/images/slideshow-ref-1.jpg'],
     specifications: [
       { label: 'Metal', value: '18K Yellow Gold' },
       { label: 'Weight', value: '28.5 Grams' }
@@ -101,8 +101,8 @@ const fallbackProducts = [
     materials: 'Grade AAA Akoya Pearl, Sterling Silver 925',
     careGuide: 'Pearls love natural oils. Put on after cosmetics application.',
     shippingInfo: 'Complimentary insured express delivery.',
-    image: '/assets/images/placeholder-earrings.svg',
-    images: ['/assets/images/placeholder-earrings.svg', '/assets/images/placeholder-jewellery.svg'],
+    image: '/assets/images/slideshow-earrings.jpg',
+    images: ['/assets/images/slideshow-earrings.jpg', '/assets/images/slideshow-1.jpg'],
     specifications: [
       { label: 'Metal', value: 'Sterling Silver 925' },
       { label: 'Pearl Type', value: 'Natural Akoya Pearl 9mm' }
@@ -124,14 +124,24 @@ const fallbackProducts = [
     materials: '18K Warm Gold, Brilliant Diamonds',
     careGuide: 'Wipe down gently after wearing with included polishing cloth.',
     shippingInfo: 'Complimentary insured express delivery.',
-    image: '/assets/images/placeholder-bracelets.svg',
-    images: ['/assets/images/placeholder-bracelets.svg', '/assets/images/placeholder-jewellery.svg'],
+    image: '/assets/images/slideshow-bangles.jpg',
+    images: ['/assets/images/slideshow-bangles.jpg', '/assets/images/slideshow-2.jpg'],
     specifications: [
       { label: 'Metal', value: '18K Warm Gold' },
       { label: 'Inner Circumference', value: '6.5 Inches' }
     ]
   }
 ];
+
+export function getDefaultPlaceholder(nameOrCategory?: string): string {
+  if (!nameOrCategory) return '/assets/images/placeholder-jewellery.svg';
+  const s = nameOrCategory.toLowerCase();
+  if (s.includes('ring')) return '/assets/images/placeholder-rings.svg';
+  if (s.includes('necklace') || s.includes('pendant') || s.includes('choker')) return '/assets/images/placeholder-necklaces.svg';
+  if (s.includes('earring') || s.includes('stud') || s.includes('hoop')) return '/assets/images/placeholder-earrings.svg';
+  if (s.includes('bracelet') || s.includes('bangle') || s.includes('cuff')) return '/assets/images/placeholder-bracelets.svg';
+  return '/assets/images/placeholder-jewellery.svg';
+}
 
 export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -168,7 +178,11 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 
       const [rows] = await pool.query(query, queryParams);
       if (Array.isArray(rows) && rows.length > 0) {
-        return res.status(200).json({ success: true, count: rows.length, data: rows });
+        const mappedRows = rows.map((row: any) => ({
+          ...row,
+          image: row.image && row.image.trim() !== '' ? row.image : getDefaultPlaceholder(row.category_name || row.name)
+        }));
+        return res.status(200).json({ success: true, count: mappedRows.length, data: mappedRows });
       }
     } catch (dbErr) {
       // Fallback to local memory products if DB connection fails
@@ -208,6 +222,7 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
 
       if (rows && rows.length > 0) {
         const product = rows[0];
+        const finalImage = product.image && product.image.trim() !== '' ? product.image : getDefaultPlaceholder(product.category_name || product.name);
         const [specs]: any = await pool.query(`SELECT spec_label as label, spec_value as value FROM product_specifications WHERE product_id = ?`, [product.id]);
         const [imgs]: any = await pool.query(`SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`, [product.id]);
 
@@ -215,7 +230,8 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
           success: true,
           data: {
             ...product,
-            images: imgs.map((i: any) => i.image_url),
+            image: finalImage,
+            images: imgs.length > 0 ? imgs.map((i: any) => i.image_url) : [finalImage],
             specifications: specs
           }
         });
@@ -236,7 +252,11 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
     try {
       const [rows]: any = await pool.query(`SELECT * FROM categories ORDER BY id ASC`);
       if (rows && rows.length > 0) {
-        return res.status(200).json({ success: true, count: rows.length, data: rows });
+        const mappedCats = rows.map((c: any) => ({
+          ...c,
+          image: c.image && c.image.trim() !== '' ? c.image : getDefaultPlaceholder(c.slug || c.name)
+        }));
+        return res.status(200).json({ success: true, count: mappedCats.length, data: mappedCats });
       }
     } catch (dbErr) {
       // Fallback

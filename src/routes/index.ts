@@ -7,6 +7,9 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  createCategory,
+  updateCategory,
+  deleteCategory,
   updateOrderStatus,
   verifyAdmin,
   updateAdminProfile,
@@ -49,9 +52,17 @@ router.get('/admin/verify', adminAuthStack, verifyAdmin);
 router.get('/admin/dashboard', adminAuthStack, getAdminMetrics);
 router.put('/admin/profile', adminAuthStack, updateAdminProfile);
 router.post('/admin/users', adminAuthStack, createAdminUser);
+
+// Product Admin Routes
 router.post('/admin/products', adminAuthStack, createProduct);
 router.put('/admin/products/:id', adminAuthStack, updateProduct);
 router.delete('/admin/products/:id', adminAuthStack, deleteProduct);
+
+// Category Admin Routes
+router.post('/admin/categories', adminAuthStack, createCategory);
+router.put('/admin/categories/:id', adminAuthStack, updateCategory);
+router.delete('/admin/categories/:id', adminAuthStack, deleteCategory);
+
 router.put('/admin/orders/:id/status', adminAuthStack, updateOrderStatus);
 
 export default router;
