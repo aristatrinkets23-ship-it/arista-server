@@ -106,7 +106,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { name, category, price, compareAtPrice, badge, inStock, stockQuantity, description, image } = req.body;
+    const { name, category, price, compareAtPrice, badge, inStock, stockQuantity, description, image, images } = req.body;
 
     try {
       let categoryId = null;
@@ -135,6 +135,16 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
          WHERE id = ?`,
         [name, categoryId, price, compareAtPrice || null, badge || null, inStock ? 1 : 1, stockQuantity || 10, description || '', image, id]
       );
+
+      if (images && Array.isArray(images)) {
+        await pool.query(`DELETE FROM product_images WHERE product_id = ?`, [id]);
+        for (let i = 0; i < images.length; i++) {
+          await pool.query(
+            `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
+            [id, images[i], i]
+          );
+        }
+      }
     } catch (dbErr: any) {
       logger.warn(`Product update DB error: ${dbErr.message}`);
     }
