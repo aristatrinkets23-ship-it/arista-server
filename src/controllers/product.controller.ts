@@ -159,13 +159,31 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
 };
 
 /**
- * Get all product categories from database
+ * Get all product categories from database with accurate item counts
  */
 export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const [rows]: any = await pool.query(`SELECT * FROM categories ORDER BY id ASC`);
+    const [rows]: any = await pool.query(`
+      SELECT c.*, 
+             (
+               SELECT COUNT(*) 
+               FROM products p 
+               WHERE p.category_id = c.id 
+                  OR (p.category_id IS NULL AND (LOWER(p.name) LIKE CONCAT('%', LOWER(c.slug), '%') OR LOWER(p.slug) LIKE CONCAT('%', LOWER(c.slug), '%')))
+             ) AS item_count
+      FROM categories c 
+      ORDER BY c.id ASC
+    `);
+
+    for (const cat of rows || []) {
+      try {
+        await pool.query(`UPDATE categories SET item_count = ? WHERE id = ?`, [cat.item_count, cat.id]);
+      } catch (e) {}
+    }
+
     const mappedCats = (rows || []).map((c: any) => ({
       ...c,
+      item_count: Number(c.item_count || 0),
       image: c.image && c.image.trim() !== '' ? c.image : getDefaultPlaceholder(c.slug || c.name)
     }));
 
