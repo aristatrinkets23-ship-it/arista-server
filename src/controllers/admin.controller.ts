@@ -229,20 +229,36 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
 export const createCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { name, slug, description, image } = req.body;
-    if (!name || !slug) {
-      return res.status(400).json({ success: false, message: 'Category name and slug are required.' });
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, message: 'Category name is required.' });
     }
-    const cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+
+    const trimmedName = name.trim();
+    const cleanSlug = (slug || trimmedName).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+
+    // Case-insensitive duplicate check for category name or slug
+    const [existing]: any = await pool.query(
+      `SELECT id, name FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) OR LOWER(slug) = LOWER(?)`,
+      [trimmedName, cleanSlug]
+    );
+
+    if (existing && existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Category "${trimmedName}" already exists.`
+      });
+    }
+
     try {
       const [result]: any = await pool.query(
         `INSERT INTO categories (name, slug, description, image, item_count) VALUES (?, ?, ?, ?, 0)`,
-        [name, cleanSlug, description || '', image || '/assets/images/hero-categories.jpg']
+        [trimmedName, cleanSlug, description || '', image || '/assets/images/hero-categories.jpg']
       );
-      logger.info(`Category created in database: ${name} (ID: ${result.insertId})`);
+      logger.info(`Category created in database: ${trimmedName} (ID: ${result.insertId})`);
       return res.status(201).json({
         success: true,
         message: 'Category created successfully.',
-        data: { id: result.insertId, name, slug: cleanSlug, image }
+        data: { id: result.insertId, name: trimmedName, slug: cleanSlug, image }
       });
     } catch (dbErr: any) {
       logger.error(`Category creation DB error: ${dbErr.message}`);
@@ -260,6 +276,23 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
   try {
     const { id } = req.params;
     const { name, slug, description, image } = req.body;
+
+    if (name || slug) {
+      const checkName = name ? name.trim() : '';
+      const checkSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-') : '';
+
+      const [existing]: any = await pool.query(
+        `SELECT id FROM categories WHERE (LOWER(TRIM(name)) = LOWER(?) OR LOWER(slug) = LOWER(?)) AND id != ? AND slug != ?`,
+        [checkName, checkSlug, id, id]
+      );
+      if (existing && existing.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Category "${checkName || checkSlug}" already exists.`
+        });
+      }
+    }
+
     try {
       const cleanSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-') : undefined;
       await pool.query(
@@ -270,7 +303,7 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
           image = COALESCE(?, image),
           updated_at = CURRENT_TIMESTAMP
          WHERE id = ? OR slug = ?`,
-        [name, cleanSlug, description, image, id, id]
+        [name ? name.trim() : null, cleanSlug, description, image, id, id]
       );
     } catch (dbErr: any) {
       logger.error(`Category update DB error: ${dbErr.message}`);
