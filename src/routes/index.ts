@@ -18,6 +18,7 @@ import {
   updateAdminUserPassword,
   deleteAdminUserById
 } from '../controllers/admin.controller';
+import { getHomepageConfig, updateHomepageConfig } from '../controllers/homepage.controller';
 import { authenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -30,6 +31,9 @@ router.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Homepage Config Routes (Public)
+router.get('/homepage-config', getHomepageConfig);
 
 // Authentication Routes
 router.post('/auth/register', registerUser);
@@ -58,6 +62,9 @@ router.get('/admin/users', adminAuthStack, getAdminUsers);
 router.post('/admin/users', adminAuthStack, createAdminUser);
 router.put('/admin/users/:id/password', adminAuthStack, updateAdminUserPassword);
 router.delete('/admin/users/:id', adminAuthStack, deleteAdminUserById);
+
+// Homepage Config Admin Routes
+router.put('/admin/homepage-config', adminAuthStack, updateHomepageConfig);
 
 // Product Admin Routes
 router.post('/admin/products', adminAuthStack, createProduct);

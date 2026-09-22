@@ -26,7 +26,7 @@ export const authenticateJwt = (req: Request, _res: Response, next: NextFunction
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'arista_trinkets_jwt_secret_key_2026_super_secure_key'
+      process.env.JWT_SECRET || 'AristaTrinketsJwtSecretKey2026'
     ) as JwtPayload;
     req.user = decoded;
     next();

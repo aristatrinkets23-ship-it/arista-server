@@ -138,3 +138,16 @@ CREATE TABLE IF NOT EXISTS `order_items` (
   `total_price` DECIMAL(10, 2) NOT NULL,
   FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. HOMEPAGE CONFIG TABLE
+CREATE TABLE IF NOT EXISTS `homepage_config` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `section_key` VARCHAR(100) NOT NULL UNIQUE,
+  `section_label` VARCHAR(150) NOT NULL,
+  `image` LONGTEXT DEFAULT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `homepage_config` (`section_key`, `section_label`, `image`) VALUES
+('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.jpg');
+

@@ -102,6 +102,22 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     try {
       await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`);
     } catch (e) {}
+
+    // 6. Create homepage_config table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`homepage_config\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`section_key\` VARCHAR(100) NOT NULL UNIQUE,
+        \`section_label\` VARCHAR(150) NOT NULL,
+        \`image\` LONGTEXT DEFAULT NULL,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await connection.query(`
+      INSERT IGNORE INTO \`homepage_config\` (\`section_key\`, \`section_label\`, \`image\`) VALUES
+      ('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.jpg');
+    `);
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }
