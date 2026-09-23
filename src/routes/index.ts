@@ -19,6 +19,7 @@ import {
   deleteAdminUserById
 } from '../controllers/admin.controller';
 import { getHomepageConfig, updateHomepageConfig } from '../controllers/homepage.controller';
+import { getWishlist, toggleWishlist, removeFromWishlist, clearWishlist } from '../controllers/wishlist.controller';
 import { authenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -34,6 +35,12 @@ router.get('/health', (req, res) => {
 
 // Homepage Config Routes (Public)
 router.get('/homepage-config', getHomepageConfig);
+
+// Wishlist Routes (Public / Session / Auth)
+router.get('/wishlist', getWishlist);
+router.post('/wishlist/toggle', toggleWishlist);
+router.delete('/wishlist/clear', clearWishlist);
+router.delete('/wishlist/:idOrSlug', removeFromWishlist);
 
 // Authentication Routes
 router.post('/auth/register', registerUser);

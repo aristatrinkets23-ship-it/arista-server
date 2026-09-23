@@ -118,6 +118,22 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       INSERT IGNORE INTO \`homepage_config\` (\`section_key\`, \`section_label\`, \`image\`) VALUES
       ('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.jpg');
     `);
+
+    // 7. Create wishlist_items table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`wishlist_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`user_id\` INT DEFAULT NULL,
+        \`session_id\` VARCHAR(100) DEFAULT NULL,
+        \`product_id\` INT DEFAULT NULL,
+        \`slug\` VARCHAR(150) NOT NULL,
+        \`product_data\` JSON DEFAULT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_wishlist_user\` (\`user_id\`),
+        INDEX \`idx_wishlist_session\` (\`session_id\`),
+        INDEX \`idx_wishlist_slug\` (\`slug\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }

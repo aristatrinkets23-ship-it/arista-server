@@ -321,13 +321,42 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
 export const deleteCategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+
+    // 1. Fetch category
+    const [catRows]: any = await pool.query(
+      `SELECT id, name, slug FROM categories WHERE id = ? OR slug = ?`,
+      [id, id]
+    );
+
+    if (!catRows || catRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Category not found.' });
+    }
+
+    const cat = catRows[0];
+
+    // 2. Check if products are associated with this category
+    const [prodRows]: any = await pool.query(
+      `SELECT COUNT(*) as count FROM products WHERE category_id = ?`,
+      [cat.id]
+    );
+
+    const count = prodRows && prodRows[0] ? Number(prodRows[0].count) : 0;
+
+    if (count > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete category "${cat.name}": ${count} product(s) are assigned to this category. Please reassign or delete the products first.`
+      });
+    }
+
     try {
-      await pool.query(`DELETE FROM categories WHERE id = ? OR slug = ?`, [id, id]);
+      await pool.query(`DELETE FROM categories WHERE id = ?`, [cat.id]);
     } catch (dbErr: any) {
       logger.error(`Category delete DB error: ${dbErr.message}`);
       return res.status(500).json({ success: false, message: dbErr.message });
     }
-    return res.status(200).json({ success: true, message: `Category deleted successfully.` });
+
+    return res.status(200).json({ success: true, message: `Category "${cat.name}" deleted successfully.` });
   } catch (err) {
     next(err);
   }
