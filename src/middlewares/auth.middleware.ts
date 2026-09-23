@@ -35,6 +35,23 @@ export const authenticateJwt = (req: Request, _res: Response, next: NextFunction
   }
 };
 
+export const optionalAuthenticateJwt = (req: Request, _res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || 'AristaTrinketsJwtSecretKey2026'
+      ) as JwtPayload;
+      req.user = decoded;
+    } catch (err) {
+      req.user = undefined;
+    }
+  }
+  next();
+};
+
 export const requireRole = (allowedRoles: string[]) => {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -46,3 +63,4 @@ export const requireRole = (allowedRoles: string[]) => {
     next();
   };
 };
+

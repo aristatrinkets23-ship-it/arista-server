@@ -134,6 +134,36 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         INDEX \`idx_wishlist_slug\` (\`slug\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // 8. Create cart_items table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`cart_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`user_id\` INT DEFAULT NULL,
+        \`session_id\` VARCHAR(100) DEFAULT NULL,
+        \`product_id\` INT DEFAULT NULL,
+        \`slug\` VARCHAR(150) DEFAULT NULL,
+        \`product_data\` JSON DEFAULT NULL,
+        \`metal_type\` VARCHAR(100) DEFAULT NULL,
+        \`quantity\` INT NOT NULL DEFAULT 1,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_cart_user\` (\`user_id\`),
+        INDEX \`idx_cart_session\` (\`session_id\`),
+        INDEX \`idx_cart_slug\` (\`slug\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 9. Alter existing cart_items table columns if missing
+    try {
+      await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
+    } catch (e) {}
+    try {
+      await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`slug\` VARCHAR(150) DEFAULT NULL;`);
+    } catch (e) {}
+    try {
+      await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`product_data\` JSON DEFAULT NULL;`);
+    } catch (e) {}
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }

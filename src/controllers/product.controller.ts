@@ -27,8 +27,10 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     const queryParams: any[] = [];
 
     if (category && category !== 'all') {
-      query += ` AND LOWER(c.slug) = LOWER(?)`;
-      queryParams.push(category);
+      const cleanCat = String(category).trim().toLowerCase();
+      const hyphenCat = cleanCat.replace(/[\s_]+/g, '-');
+      query += ` AND (LOWER(c.slug) = ? OR LOWER(c.name) = ? OR LOWER(REPLACE(c.name, ' ', '-')) = ? OR LOWER(REPLACE(c.slug, '-', ' ')) = ?)`;
+      queryParams.push(cleanCat, cleanCat, hyphenCat, cleanCat);
     }
 
     if (search) {
@@ -37,13 +39,13 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     }
 
     if (sort === 'price-low') {
-      query += ` ORDER BY p.price ASC`;
+      query += ` ORDER BY p.price ASC, p.id DESC`;
     } else if (sort === 'price-high') {
-      query += ` ORDER BY p.price DESC`;
+      query += ` ORDER BY p.price DESC, p.id DESC`;
     } else if (sort === 'newest') {
-      query += ` ORDER BY p.created_at DESC`;
+      query += ` ORDER BY (CASE WHEN UPPER(p.badge) = 'NEW' THEN 1 ELSE 0 END) DESC, p.created_at DESC, p.id DESC`;
     } else {
-      query += ` ORDER BY p.id ASC`;
+      query += ` ORDER BY p.id DESC`;
     }
 
     const [rows]: any = await pool.query(query, queryParams);

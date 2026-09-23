@@ -20,7 +20,15 @@ import {
 } from '../controllers/admin.controller';
 import { getHomepageConfig, updateHomepageConfig } from '../controllers/homepage.controller';
 import { getWishlist, toggleWishlist, removeFromWishlist, clearWishlist } from '../controllers/wishlist.controller';
-import { authenticateJwt, requireRole } from '../middlewares/auth.middleware';
+import {
+  getCart,
+  addToCart,
+  updateCartItem,
+  removeCartItem,
+  clearCart,
+  mergeCart
+} from '../controllers/cart.controller';
+import { authenticateJwt, optionalAuthenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -33,8 +41,19 @@ router.get('/health', (req, res) => {
   });
 });
 
+// Cart Routes (Hybrid Guest / Authenticated)
+router.get('/cart', optionalAuthenticateJwt, getCart);
+router.get('/cart/items', optionalAuthenticateJwt, getCart);
+router.post('/cart/items', optionalAuthenticateJwt, addToCart);
+router.post('/cart', optionalAuthenticateJwt, addToCart);
+router.patch('/cart/items/:productId', optionalAuthenticateJwt, updateCartItem);
+router.delete('/cart/items/:productId', optionalAuthenticateJwt, removeCartItem);
+router.delete('/cart', optionalAuthenticateJwt, clearCart);
+router.post('/cart/merge', authenticateJwt, mergeCart);
+
 // Homepage Config Routes (Public)
 router.get('/homepage-config', getHomepageConfig);
+
 
 // Wishlist Routes (Public / Session / Auth)
 router.get('/wishlist', getWishlist);

@@ -88,15 +88,19 @@ CREATE TABLE IF NOT EXISTS `cart_items` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `user_id` INT DEFAULT NULL,
   `session_id` VARCHAR(100) DEFAULT NULL,
-  `product_id` INT NOT NULL,
+  `product_id` INT DEFAULT NULL,
+  `slug` VARCHAR(150) DEFAULT NULL,
+  `product_data` JSON DEFAULT NULL,
   `metal_type` VARCHAR(100) DEFAULT NULL,
   `quantity` INT NOT NULL DEFAULT 1,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   INDEX `idx_cart_user` (`user_id`),
-  INDEX `idx_cart_session` (`session_id`)
+  INDEX `idx_cart_session` (`session_id`),
+  INDEX `idx_cart_slug` (`slug`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- 7. ORDERS TABLE
 CREATE TABLE IF NOT EXISTS `orders` (
