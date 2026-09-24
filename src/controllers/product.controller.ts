@@ -2,13 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 
 export function getDefaultPlaceholder(nameOrCategory?: string): string {
-  if (!nameOrCategory) return '/assets/images/placeholder-jewellery.svg';
+  if (!nameOrCategory) return '/assets/images/precious-jewellery-hero.jpg';
   const s = nameOrCategory.toLowerCase();
-  if (s.includes('ring')) return '/assets/images/placeholder-rings.svg';
-  if (s.includes('necklace') || s.includes('pendant') || s.includes('choker')) return '/assets/images/placeholder-necklaces.svg';
-  if (s.includes('earring') || s.includes('stud') || s.includes('hoop')) return '/assets/images/placeholder-earrings.svg';
-  if (s.includes('bracelet') || s.includes('bangle') || s.includes('cuff')) return '/assets/images/placeholder-bracelets.svg';
-  return '/assets/images/placeholder-jewellery.svg';
+  if (s.includes('ring')) return '/assets/images/occasion-daily-wear.jpg';
+  if (s.includes('necklace') || s.includes('pendant') || s.includes('choker')) return '/assets/images/occasion-wedding.jpg';
+  if (s.includes('earring') || s.includes('stud') || s.includes('hoop')) return '/assets/images/occasion-gifting.jpg';
+  if (s.includes('bracelet') || s.includes('bangle') || s.includes('cuff')) return '/assets/images/occasion-festive.jpg';
+  return '/assets/images/precious-jewellery-hero.jpg';
 }
 
 /**
@@ -51,7 +51,7 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     const [rows]: any = await pool.query(query, queryParams);
     const mappedRows = await Promise.all(
       (rows || []).map(async (row: any) => {
-        const finalImage = row.image && row.image.trim() !== '' ? row.image : getDefaultPlaceholder(row.category_name || row.name);
+        const finalImage = row.image && row.image.trim() !== '' ? row.image : (row.image || '');
         try {
           const [imgs]: any = await pool.query(
             `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`,
@@ -124,7 +124,7 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
 
     if (rows && rows.length > 0) {
       const product = rows[0];
-      const finalImage = product.image && product.image.trim() !== '' ? product.image : getDefaultPlaceholder(product.category_name || product.name);
+      const finalImage = product.image && product.image.trim() !== '' ? product.image : (product.image || '');
       const [specs]: any = await pool.query(`SELECT spec_label as label, spec_value as value FROM product_specifications WHERE product_id = ?`, [product.id]);
       const [imgs]: any = await pool.query(`SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`, [product.id]);
 

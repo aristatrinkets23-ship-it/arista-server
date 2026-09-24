@@ -93,8 +93,10 @@ const fetchDbCartItems = async (userId: number | null, sessionId: string) => {
       ? Number(row.prod_compare_at_price)
       : (extraData.compareAtPrice ? Number(extraData.compareAtPrice) : undefined);
 
-    const rawImage = row.prod_image && String(row.prod_image).trim() !== '' ? row.prod_image : extraData.image;
-    const img = rawImage && String(rawImage).trim() !== '' ? rawImage : getDefaultPlaceholder(row.category_name || extraData.category || itemName);
+    const rawImage = (extraData && extraData.image && String(extraData.image).trim() !== '')
+      ? extraData.image
+      : (row.prod_image && String(row.prod_image).trim() !== '' ? row.prod_image : '');
+    const img = rawImage && String(rawImage).trim() !== '' ? rawImage : (row.prod_image || extraData.image || '');
 
     const qty = Math.max(1, Number(row.quantity) || 1);
     const selectedMetal = row.metal_type || extraData.selectedMetal || '18K Warm Gold';

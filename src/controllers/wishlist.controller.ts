@@ -57,8 +57,10 @@ export const getWishlist = async (req: Request, res: Response, next: NextFunctio
         ? Number(row.prod_compare_at_price)
         : (extraData.compareAtPrice ? Number(extraData.compareAtPrice) : undefined);
       
-      const rawImage = row.prod_image && String(row.prod_image).trim() !== '' ? row.prod_image : extraData.image;
-      const img = rawImage && String(rawImage).trim() !== '' ? rawImage : getDefaultPlaceholder(row.category_name || extraData.category || itemName);
+      const rawImage = (extraData && extraData.image && String(extraData.image).trim() !== '')
+        ? extraData.image
+        : (row.prod_image && String(row.prod_image).trim() !== '' ? row.prod_image : '');
+      const img = rawImage && String(rawImage).trim() !== '' ? rawImage : (row.prod_image || extraData.image || '');
 
       return {
         id: itemId,
