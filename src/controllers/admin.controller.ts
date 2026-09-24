@@ -41,6 +41,10 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, message: 'Product name, price, and primary image are required.' });
     }
 
+    if (compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice !== '' && Number(price) > Number(compareAtPrice)) {
+      return res.status(400).json({ success: false, message: 'Product Price (₹ INR) cannot be greater than Compare-At Price (₹ INR).' });
+    }
+
     const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 
     let finalCategoryId = categoryId || null;
@@ -117,6 +121,10 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       image,
       images
     } = req.body;
+
+    if (price !== undefined && compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice !== '' && Number(price) > Number(compareAtPrice)) {
+      return res.status(400).json({ success: false, message: 'Product Price (₹ INR) cannot be greater than Compare-At Price (₹ INR).' });
+    }
 
     try {
       let categoryId = null;
