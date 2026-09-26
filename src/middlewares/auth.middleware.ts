@@ -17,6 +17,9 @@ declare global {
 }
 
 export const authenticateJwt = (req: Request, _res: Response, next: NextFunction) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return next(new AppError('Authentication token missing or invalid format', 401));
@@ -36,6 +39,9 @@ export const authenticateJwt = (req: Request, _res: Response, next: NextFunction
 };
 
 export const optionalAuthenticateJwt = (req: Request, _res: Response, next: NextFunction) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
@@ -54,6 +60,9 @@ export const optionalAuthenticateJwt = (req: Request, _res: Response, next: Next
 
 export const requireRole = (allowedRoles: string[]) => {
   return (req: Request, _res: Response, next: NextFunction) => {
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
     if (!req.user) {
       return next(new AppError('User authentication required', 401));
     }
@@ -63,4 +72,5 @@ export const requireRole = (allowedRoles: string[]) => {
     next();
   };
 };
+
 
