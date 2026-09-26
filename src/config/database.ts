@@ -63,7 +63,8 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`image\` LONGTEXT DEFAULT NULL,
         \`item_count\` INT NOT NULL DEFAULT 0,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_category_slug\` (\`slug\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -88,22 +89,36 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`image\` LONGTEXT NOT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (\`category_id\`) REFERENCES \`categories\` (\`id\`) ON DELETE SET NULL
+        FOREIGN KEY (\`category_id\`) REFERENCES \`categories\` (\`id\`) ON DELETE SET NULL,
+        INDEX \`idx_product_slug\` (\`slug\`),
+        INDEX \`idx_product_price\` (\`price\`),
+        INDEX \`idx_product_stock\` (\`in_stock\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 5. Alter columns in existing database to support base64 LONGTEXT images
-    try {
-      await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
-    } catch (e) {}
-    try {
-      await connection.query(`ALTER TABLE \`products\` MODIFY COLUMN \`image\` LONGTEXT NOT NULL;`);
-    } catch (e) {}
-    try {
-      await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`);
-    } catch (e) {}
+    // 5. Create product_images table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`product_images\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`product_id\` INT NOT NULL,
+        \`image_url\` LONGTEXT NOT NULL,
+        \`sort_order\` INT DEFAULT 0,
+        FOREIGN KEY (\`product_id\`) REFERENCES \`products\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
 
-    // 6. Create homepage_config table if not exists
+    // 6. Create product_specifications table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`product_specifications\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`product_id\` INT NOT NULL,
+        \`spec_label\` VARCHAR(100) NOT NULL,
+        \`spec_value\` VARCHAR(255) NOT NULL,
+        FOREIGN KEY (\`product_id\`) REFERENCES \`products\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 7. Create homepage_config table if not exists
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`homepage_config\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
@@ -119,7 +134,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.jpg');
     `);
 
-    // 7. Create wishlist_items table if not exists
+    // 8. Create wishlist_items table if not exists
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`wishlist_items\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
@@ -135,7 +150,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 8. Create cart_items table if not exists
+    // 9. Create cart_items table if not exists
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`cart_items\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
@@ -154,15 +169,63 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 9. Alter existing cart_items table columns if missing
+    // 10. Create orders table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`orders\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`order_number\` VARCHAR(50) NOT NULL UNIQUE,
+        \`user_id\` INT DEFAULT NULL,
+        \`customer_name\` VARCHAR(100) NOT NULL,
+        \`customer_email\` VARCHAR(150) NOT NULL,
+        \`customer_phone\` VARCHAR(20) NOT NULL,
+        \`shipping_address\` TEXT NOT NULL,
+        \`city\` VARCHAR(100) NOT NULL,
+        \`state\` VARCHAR(100) NOT NULL,
+        \`pincode\` VARCHAR(20) NOT NULL,
+        \`subtotal\` DECIMAL(10, 2) NOT NULL,
+        \`shipping_fee\` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+        \`tax\` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+        \`total_amount\` DECIMAL(10, 2) NOT NULL,
+        \`payment_method\` ENUM('RAZORPAY', 'UPI', 'CARD', 'NETBANKING', 'COD') NOT NULL DEFAULT 'RAZORPAY',
+        \`payment_status\` ENUM('PENDING', 'PAID', 'FAILED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
+        \`razorpay_order_id\` VARCHAR(100) DEFAULT NULL,
+        \`razorpay_payment_id\` VARCHAR(100) DEFAULT NULL,
+        \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_order_number\` (\`order_number\`),
+        INDEX \`idx_order_status\` (\`order_status\`),
+        INDEX \`idx_order_user\` (\`user_id\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 11. Create order_items table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`order_items\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`order_id\` INT NOT NULL,
+        \`product_id\` INT DEFAULT NULL,
+        \`product_name\` VARCHAR(150) NOT NULL,
+        \`unit_price\` DECIMAL(10, 2) NOT NULL,
+        \`metal_type\` VARCHAR(100) DEFAULT NULL,
+        \`quantity\` INT NOT NULL DEFAULT 1,
+        \`total_price\` DECIMAL(10, 2) NOT NULL,
+        FOREIGN KEY (\`order_id\`) REFERENCES \`orders\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 12. Alter columns in existing database to support base64 LONGTEXT images if needed
+    try {
+      await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
+    } catch (e) {}
+    try {
+      await connection.query(`ALTER TABLE \`products\` MODIFY COLUMN \`image\` LONGTEXT NOT NULL;`);
+    } catch (e) {}
+    try {
+      await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`);
+    } catch (e) {}
     try {
       await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
-    } catch (e) {}
-    try {
-      await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`slug\` VARCHAR(150) DEFAULT NULL;`);
-    } catch (e) {}
-    try {
-      await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`product_data\` JSON DEFAULT NULL;`);
     } catch (e) {}
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
