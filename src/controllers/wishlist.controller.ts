@@ -51,7 +51,7 @@ export const getWishlist = async (req: Request, res: Response, next: NextFunctio
 
       const itemSlug = row.wishlist_slug || row.prod_slug || extraData.slug;
       const itemId = row.prod_id || row.wishlist_product_id || extraData.id || row.wishlist_id;
-      const itemName = row.prod_name || extraData.name || 'Handcrafted Fine Jewellery';
+      const itemName = row.prod_name || extraData.name || 'Demi Fine, Anti Tarnish Jewellery';
       const itemPrice = row.prod_price !== null && row.prod_price !== undefined ? Number(row.prod_price) : Number(extraData.price || 0);
       const itemComparePrice = row.prod_compare_at_price !== null && row.prod_compare_at_price !== undefined
         ? Number(row.prod_compare_at_price)

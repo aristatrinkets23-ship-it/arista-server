@@ -82,7 +82,7 @@ const fetchDbCartItems = async (userId: number | null, sessionId: string) => {
 
     const itemSlug = row.prod_slug || row.cart_slug || extraData.slug;
     const itemId = row.prod_id || row.product_id || extraData.id || row.cart_item_id;
-    const itemName = row.prod_name || extraData.name || 'Handcrafted Fine Jewellery';
+    const itemName = row.prod_name || extraData.name || 'Demi Fine, Anti Tarnish Jewellery';
     
     // STRICT SECURITY: Use DB product price first, fallback to product_data price
     const itemPrice = row.prod_price !== null && row.prod_price !== undefined 
