@@ -28,6 +28,7 @@ import {
   clearCart,
   mergeCart
 } from '../controllers/cart.controller';
+import { createEnquiry, getEnquiries } from '../controllers/enquiry.controller';
 import { authenticateJwt, optionalAuthenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -104,4 +105,10 @@ router.delete('/admin/categories/:id', adminAuthStack, deleteCategory);
 
 router.put('/admin/orders/:id/status', adminAuthStack, updateOrderStatus);
 
+// Customer Enquiry Routes
+router.post('/enquiries', createEnquiry);
+router.post('/contact', createEnquiry);
+router.get('/admin/enquiries', adminAuthStack, getEnquiries);
+
 export default router;
+

@@ -42,7 +42,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     // 2. Seed default admin credentials into users table if not exists
     const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@aristatrinkets.com';
     const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
-    
+
     const [adminRows]: any = await connection.query(`SELECT id FROM users WHERE email = ?`, [adminEmail]);
     if (!adminRows || adminRows.length === 0) {
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
@@ -214,19 +214,33 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 12. Alter columns in existing database to support base64 LONGTEXT images if needed
+    // 12. Create enquiries table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`enquiries\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`name\` VARCHAR(100) NOT NULL,
+        \`email\` VARCHAR(150) NOT NULL,
+        \`phone\` VARCHAR(20) DEFAULT NULL,
+        \`subject\` VARCHAR(200) DEFAULT NULL,
+        \`message\` TEXT NOT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_enquiries_email\` (\`email\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 13. Alter columns in existing database to support base64 LONGTEXT images if needed
     try {
       await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await connection.query(`ALTER TABLE \`products\` MODIFY COLUMN \`image\` LONGTEXT NOT NULL;`);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`);
-    } catch (e) {}
+    } catch (e) { }
     try {
       await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
-    } catch (e) {}
+    } catch (e) { }
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }

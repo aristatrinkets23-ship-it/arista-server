@@ -20,6 +20,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "mysql2": "^3.9.7",
+    "nodemailer": "^10.0.12",
     "razorpay": "^2.9.8"
   },
   "devDependencies": {
@@ -29,6 +30,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.13.0",
+    "@types/nodemailer": "^8.0.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5"
   },
