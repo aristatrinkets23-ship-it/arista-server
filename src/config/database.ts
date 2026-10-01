@@ -174,6 +174,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       CREATE TABLE IF NOT EXISTS \`orders\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
         \`order_number\` VARCHAR(50) NOT NULL UNIQUE,
+        \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL,
         \`user_id\` INT DEFAULT NULL,
         \`customer_name\` VARCHAR(100) NOT NULL,
         \`customer_email\` VARCHAR(150) NOT NULL,
@@ -191,9 +192,14 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`razorpay_order_id\` VARCHAR(100) DEFAULT NULL,
         \`razorpay_payment_id\` VARCHAR(100) DEFAULT NULL,
         \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+        \`processing_at\` TIMESTAMP NULL DEFAULT NULL,
+        \`shipped_at\` TIMESTAMP NULL DEFAULT NULL,
+        \`delivered_at\` TIMESTAMP NULL DEFAULT NULL,
+        \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX \`idx_order_number\` (\`order_number\`),
+        INDEX \`idx_tracking_code\` (\`tracking_code\`),
         INDEX \`idx_order_status\` (\`order_status\`),
         INDEX \`idx_order_user\` (\`user_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -240,6 +246,23 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     } catch (e) { }
     try {
       await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
+    } catch (e) { }
+    // 14. Add tracking_code and status timestamp columns to existing orders table if not exist
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL AFTER \`order_number\`;`);
+      await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`);
+    } catch (e) { }
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`order_status\`;`);
+    } catch (e) { }
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`processing_at\`;`);
+    } catch (e) { }
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`shipped_at\`;`);
+    } catch (e) { }
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`delivered_at\`;`);
     } catch (e) { }
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);

@@ -376,22 +376,58 @@ export const deleteCategory = async (req: Request, res: Response, next: NextFunc
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { orderStatus, paymentStatus } = req.body;
+    const { status, orderStatus, paymentStatus } = req.body;
 
-    try {
-      await pool.query(
-        `UPDATE orders SET order_status = ?, payment_status = ? WHERE id = ?`,
-        [orderStatus || 'PROCESSING', paymentStatus || 'PAID', id]
-      );
-    } catch (dbErr) {
-      // Fallback
+    const newOrderStatus = (status || orderStatus || '').toUpperCase();
+    const validStatuses = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+
+    if (!validStatuses.includes(newOrderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order status "${newOrderStatus}". Allowed: ${validStatuses.join(', ')}`
+      });
     }
+
+    let dateColumnUpdate = '';
+    if (newOrderStatus === 'PROCESSING') {
+      dateColumnUpdate = `, processing_at = COALESCE(processing_at, CURRENT_TIMESTAMP)`;
+    } else if (newOrderStatus === 'SHIPPED') {
+      dateColumnUpdate = `, shipped_at = COALESCE(shipped_at, CURRENT_TIMESTAMP)`;
+    } else if (newOrderStatus === 'DELIVERED') {
+      dateColumnUpdate = `, delivered_at = COALESCE(delivered_at, CURRENT_TIMESTAMP)`;
+    } else if (newOrderStatus === 'CANCELLED') {
+      dateColumnUpdate = `, cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP)`;
+    }
+
+    let query = `UPDATE orders SET order_status = ?${dateColumnUpdate}`;
+    const queryParams: any[] = [newOrderStatus];
+
+    if (paymentStatus) {
+      query += `, payment_status = ?`;
+      queryParams.push(paymentStatus.toUpperCase());
+    }
+
+    query += ` WHERE id = ? OR order_number = ?`;
+    queryParams.push(id, id);
+
+    const [result]: any = await pool.query(query, queryParams);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: `Order #${id} not found in database.` });
+    }
+
+    logger.info(`Order #${id} status updated to ${newOrderStatus} in MySQL DB.`);
 
     return res.status(200).json({
       success: true,
-      message: `Order ID ${id} status updated to ${orderStatus}.`
+      message: `Order #${id} status updated to ${newOrderStatus} in database.`,
+      data: {
+        orderId: id,
+        orderStatus: newOrderStatus
+      }
     });
-  } catch (err) {
+  } catch (err: any) {
+    logger.error(`updateOrderStatus error: ${err.message}`);
     next(err);
   }
 };
@@ -614,6 +650,157 @@ export const deleteAdminUserById = async (req: Request, res: Response, next: Nex
       message: 'Admin user account revoked and deleted successfully.'
     });
   } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Admin: Get All Orders with Filters
+ *
+ * Query params:
+ *   - status       : order_status filter  (PENDING | PROCESSING | SHIPPED | DELIVERED | CANCELLED)
+ *   - paymentStatus: payment_status filter (PENDING | PAID | FAILED | REFUNDED)
+ *   - dateFrom     : ISO date string  e.g. 2026-01-01
+ *   - dateTo       : ISO date string  e.g. 2026-12-31
+ *   - search       : order_number, tracking_code, customer name or email substring
+ *   - limit        : page size (default 50)
+ *   - offset       : pagination offset (default 0)
+ */
+export const getAdminOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      status,
+      paymentStatus,
+      dateFrom,
+      dateTo,
+      search,
+      limit = '10',
+      offset = '0'
+    } = req.query as Record<string, string>;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    // Filter by order status
+    const validOrderStatuses = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'];
+    if (status && validOrderStatuses.includes(status.toUpperCase())) {
+      conditions.push(`o.order_status = ?`);
+      params.push(status.toUpperCase());
+    }
+
+    // Filter by payment status
+    const validPaymentStatuses = ['PENDING', 'PAID', 'FAILED', 'REFUNDED'];
+    if (paymentStatus && validPaymentStatuses.includes(paymentStatus.toUpperCase())) {
+      conditions.push(`o.payment_status = ?`);
+      params.push(paymentStatus.toUpperCase());
+    }
+
+    // Filter by date range (order placed date)
+    if (dateFrom) {
+      conditions.push(`DATE(o.created_at) >= ?`);
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push(`DATE(o.created_at) <= ?`);
+      params.push(dateTo);
+    }
+
+    // Search by order number, tracking code, customer name or email
+    if (search && search.trim()) {
+      conditions.push(`(
+        o.order_number   LIKE ? OR
+        o.tracking_code  LIKE ? OR
+        o.customer_name  LIKE ? OR
+        o.customer_email LIKE ?
+      )`);
+      const like = `%${search.trim()}%`;
+      params.push(like, like, like, like);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const pageLimit  = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
+    const pageOffset = Math.max(parseInt(offset, 10) || 0, 0);
+
+    // Main orders query
+    const [orders]: any = await pool.query(
+      `SELECT
+         o.id,
+         o.order_number,
+         o.tracking_code,
+         o.customer_name,
+         o.customer_email,
+         o.customer_phone,
+         o.shipping_address,
+         o.city,
+         o.state,
+         o.pincode,
+         o.subtotal,
+         o.shipping_fee,
+         o.tax,
+         o.total_amount,
+         o.payment_method,
+         o.payment_status,
+         o.order_status,
+         o.razorpay_order_id,
+         o.razorpay_payment_id,
+         DATE_FORMAT(o.created_at, '%d %b %Y %H:%i') AS ordered_at,
+         DATE_FORMAT(o.processing_at, '%d %b %Y %H:%i') AS processing_at,
+         DATE_FORMAT(o.shipped_at, '%d %b %Y %H:%i') AS shipped_at,
+         DATE_FORMAT(o.delivered_at, '%d %b %Y %H:%i') AS delivered_at,
+         DATE_FORMAT(o.cancelled_at, '%d %b %Y %H:%i') AS cancelled_at,
+         DATE_FORMAT(o.updated_at, '%d %b %Y %H:%i') AS updated_at
+       FROM orders o
+       ${whereClause}
+       ORDER BY o.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, pageLimit, pageOffset]
+    );
+
+    // Count query for pagination metadata
+    const [countResult]: any = await pool.query(
+      `SELECT COUNT(*) as total FROM orders o ${whereClause}`,
+      params
+    );
+    const total = Number(countResult[0]?.total || 0);
+
+    // Fetch order items for each order
+    const ordersWithItems = await Promise.all(
+      (orders || []).map(async (order: any) => {
+        try {
+          const [items]: any = await pool.query(
+            `SELECT
+               oi.id,
+               oi.product_name,
+               oi.unit_price,
+               oi.metal_type,
+               oi.quantity,
+               oi.total_price
+             FROM order_items oi
+             WHERE oi.order_id = ?
+             ORDER BY oi.id ASC`,
+            [order.id]
+          );
+          return { ...order, items: items || [] };
+        } catch {
+          return { ...order, items: [] };
+        }
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        orders: ordersWithItems,
+        pagination: {
+          total,
+          limit:  pageLimit,
+          offset: pageOffset,
+          pages:  Math.ceil(total / pageLimit)
+        }
+      }
+    });
+  } catch (err: any) {
+    logger.error(`getAdminOrders error: ${err.message}`);
     next(err);
   }
 };

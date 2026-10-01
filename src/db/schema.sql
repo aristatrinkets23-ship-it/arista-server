@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS `cart_items` (
 CREATE TABLE IF NOT EXISTS `orders` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `order_number` VARCHAR(50) NOT NULL UNIQUE,
+  `tracking_code` VARCHAR(20) UNIQUE DEFAULT NULL,
   `user_id` INT DEFAULT NULL,
   `customer_name` VARCHAR(100) NOT NULL,
   `customer_email` VARCHAR(150) NOT NULL,
@@ -126,6 +127,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_order_number` (`order_number`),
+  INDEX `idx_tracking_code` (`tracking_code`),
   INDEX `idx_order_status` (`order_status`),
   INDEX `idx_order_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

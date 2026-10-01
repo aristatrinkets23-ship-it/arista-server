@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getProducts, getProductBySlug, getCategories } from '../controllers/product.controller';
 import { registerUser, loginUser, getCurrentUser } from '../controllers/auth.controller';
-import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber } from '../controllers/order.controller';
+import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder } from '../controllers/order.controller';
 import {
   getAdminMetrics,
   createProduct,
@@ -16,7 +16,8 @@ import {
   createAdminUser,
   getAdminUsers,
   updateAdminUserPassword,
-  deleteAdminUserById
+  deleteAdminUserById,
+  getAdminOrders
 } from '../controllers/admin.controller';
 import { getHomepageConfig, updateHomepageConfig } from '../controllers/homepage.controller';
 import { getWishlist, toggleWishlist, removeFromWishlist, clearWishlist } from '../controllers/wishlist.controller';
@@ -76,7 +77,8 @@ router.get('/categories', getCategories);
 router.post('/orders', createOrder);
 router.post('/orders/razorpay-order', createPaymentOrder);
 router.post('/orders/verify-payment', verifyPayment);
-router.get('/orders/:orderNumber', getOrderByNumber);
+router.get('/orders/track/:trackingCode', trackOrder);     // Track by TRK- code
+router.get('/orders/:orderNumber', getOrderByNumber);      // Lookup by ART- order number
 
 // Admin Protection Middleware (Applied to all /admin routes)
 const adminAuthStack = [authenticateJwt, requireRole(['ADMIN', 'SUPER_ADMIN'])];
@@ -104,6 +106,9 @@ router.put('/admin/categories/:id', adminAuthStack, updateCategory);
 router.delete('/admin/categories/:id', adminAuthStack, deleteCategory);
 
 router.put('/admin/orders/:id/status', adminAuthStack, updateOrderStatus);
+
+// Admin Orders List (with filters)
+router.get('/admin/orders', adminAuthStack, getAdminOrders);
 
 // Customer Enquiry Routes
 router.post('/enquiries', createEnquiry);
