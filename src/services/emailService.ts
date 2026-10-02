@@ -318,3 +318,59 @@ export const sendOrderConfirmationEmail = async (order: OrderEmailData): Promise
     return false;
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OTP PASSWORD RESET EMAIL
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sends a 6-digit OTP verification code email to customer for password reset.
+ */
+export const sendOtpEmail = async (toEmail: string, otp: string): Promise<boolean> => {
+  try {
+    const { transporter, senderAddress } = await createTransporter();
+    const safeEmail = escapeHtml(toEmail);
+
+    const emailHtml = `
+      <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;max-width:540px;margin:0 auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;background:#fff;">
+        <div style="background:#1a120b;padding:24px 20px;text-align:center;">
+          <h2 style="margin:0;font-size:24px;font-weight:700;color:#d4af37;letter-spacing:2px;text-transform:uppercase;">ARISTA TRINKETS</h2>
+          <p style="margin:6px 0 0;font-size:12px;color:#e2d9cc;text-transform:uppercase;letter-spacing:1.5px;">Atelier Security Concierge</p>
+        </div>
+        <div style="padding:32px 24px;background:#faf8f5;text-align:center;">
+          <h3 style="margin-top:0;margin-bottom:12px;color:#1a120b;font-size:20px;font-weight:600;">Password Reset Verification Code</h3>
+          <p style="margin-bottom:24px;font-size:14px;color:#666;line-height:1.5;">
+            We received a request to reset the password for your Arista Trinkets account (<strong>${safeEmail}</strong>).
+          </p>
+          <div style="background:#fff;border:2px dashed #cfa874;border-radius:8px;padding:20px 16px;margin:0 auto 24px auto;max-width:280px;">
+            <span style="font-size:32px;font-weight:800;letter-spacing:8px;color:#5b4636;font-family:monospace;">${otp}</span>
+          </div>
+          <p style="font-size:13px;color:#888;margin:0;">
+            This 6-digit security code is valid for <strong>15 minutes</strong>. Do not share this code with anyone.
+          </p>
+        </div>
+        <div style="background:#f3efe9;padding:16px 20px;text-align:center;font-size:12px;color:#777;">
+          <p style="margin:0;">If you did not request a password reset, please ignore this email.</p>
+        </div>
+      </div>
+    `;
+
+    const info = await transporter.sendMail({
+      from: senderAddress,
+      to: toEmail,
+      subject: `🔒 Your Arista Password Reset Code: ${otp}`,
+      html: emailHtml,
+      text: `Your Arista Trinkets 6-digit password reset verification code is: ${otp}\nValid for 15 minutes.`
+    });
+
+    const previewUrl = nodemailer.getTestMessageUrl(info);
+    if (previewUrl) {
+      logger.info(`[EMAIL] OTP Email Preview URL: ${previewUrl}`);
+    }
+    logger.info(`[EMAIL] OTP ${otp} sent to ${toEmail}. MessageID: ${info.messageId}`);
+    return true;
+  } catch (error: any) {
+    logger.error(`[EMAIL] sendOtpEmail error: ${error.message}`);
+    return false;
+  }
+};

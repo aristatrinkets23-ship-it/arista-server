@@ -234,6 +234,20 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // 13. Create password_resets table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`password_resets\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`email\` VARCHAR(150) NOT NULL,
+        \`otp\` VARCHAR(6) NOT NULL,
+        \`expires_at\` DATETIME NOT NULL,
+        \`used\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_pwreset_email\` (\`email\`),
+        INDEX \`idx_pwreset_otp\` (\`otp\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // 13. Alter columns in existing database to support base64 LONGTEXT images if needed
     try {
       await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);

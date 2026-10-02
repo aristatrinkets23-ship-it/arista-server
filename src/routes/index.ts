@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getProducts, getProductBySlug, getCategories } from '../controllers/product.controller';
-import { registerUser, loginUser, getCurrentUser } from '../controllers/auth.controller';
+import { registerUser, loginUser, getCurrentUser, forgotPassword, verifyOtp, resetPasswordWithOtp } from '../controllers/auth.controller';
 import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder } from '../controllers/order.controller';
 import {
   getAdminMetrics,
@@ -67,6 +67,9 @@ router.delete('/wishlist/:idOrSlug', removeFromWishlist);
 router.post('/auth/register', registerUser);
 router.post('/auth/login', loginUser);
 router.get('/auth/me', getCurrentUser);
+router.post('/auth/forgot-password', forgotPassword);
+router.post('/auth/verify-otp', verifyOtp);
+router.post('/auth/reset-password-otp', resetPasswordWithOtp);
 
 // Catalog Routes
 router.get('/products', getProducts);
