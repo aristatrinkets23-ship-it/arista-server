@@ -60,11 +60,16 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       } catch (err) {}
     }
 
-    try {
+      const parsedStockNew = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
+        ? Math.max(0, Number(stockQuantity))
+        : 10;
+      const calculatedInStockNew = parsedStockNew > 0 ? (inStock !== false ? 1 : 0) : 0;
+      const isActiveValNew = (req.body.isActive !== undefined) ? (req.body.isActive ? 1 : 0) : ((req.body.available !== undefined) ? (req.body.available ? 1 : 0) : 1);
+
       const [result]: any = await pool.query(
-        `INSERT INTO products (name, slug, category_id, price, compare_at_price, badge, metal_type, gemstone, in_stock, stock_quantity, description, materials, care_guide, shipping_info, image)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [name, slug, finalCategoryId, price, compareAtPrice || null, badge || null, metalType || '18K Warm Gold', gemstone || null, inStock !== false ? 1 : 0, stockQuantity || 10, description || '', typeof materials === 'string' ? materials : JSON.stringify(materials || []), careGuide || '', shippingInfo || '', image]
+        `INSERT INTO products (name, slug, category_id, price, compare_at_price, badge, metal_type, gemstone, in_stock, stock_quantity, is_active, description, materials, care_guide, shipping_info, image)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [name, slug, finalCategoryId, price, compareAtPrice || null, badge || null, metalType || '18K Warm Gold', gemstone || null, calculatedInStockNew, parsedStockNew, isActiveValNew, description || '', typeof materials === 'string' ? materials : JSON.stringify(materials || []), careGuide || '', shippingInfo || '', image]
       );
 
       const productId = result.insertId;
@@ -87,13 +92,10 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
         }
       }
 
-      logger.info(`Admin created new product: ${name} (ID: ${productId})`);
-      return res.status(201).json({ success: true, message: 'Product created successfully.', data: { id: productId, name, slug } });
-    } catch (dbErr: any) {
-      logger.error(`MySQL insert failed for product creation: ${dbErr.message}`);
-      return res.status(500).json({ success: false, message: dbErr.message });
-    }
-  } catch (err) {
+    logger.info(`Admin created new product: ${name} (ID: ${productId})`);
+    return res.status(201).json({ success: true, message: 'Product created successfully.', data: { id: productId, name, slug } });
+  } catch (err: any) {
+    logger.error(`MySQL insert failed for product creation: ${err.message}`);
     next(err);
   }
 };
@@ -112,6 +114,8 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       badge,
       inStock,
       stockQuantity,
+      isActive,
+      available,
       description,
       materials,
       materialsStr,
@@ -146,6 +150,18 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         ? formattedMaterials
         : JSON.stringify(formattedMaterials || []);
 
+      const parsedStock = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
+        ? Math.max(0, Number(stockQuantity))
+        : null;
+
+      const calculatedInStock = parsedStock !== null
+        ? (parsedStock > 0 ? 1 : 0)
+        : (inStock !== false ? 1 : 0);
+
+      const isActiveVal = (isActive !== undefined)
+        ? (isActive ? 1 : 0)
+        : ((available !== undefined) ? (available ? 1 : 0) : null);
+
       await pool.query(
         `UPDATE products SET 
           name = COALESCE(?, name), 
@@ -155,6 +171,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           badge = ?, 
           in_stock = ?, 
           stock_quantity = COALESCE(?, stock_quantity), 
+          is_active = COALESCE(?, is_active),
           description = COALESCE(?, description), 
           materials = ?,
           care_guide = ?,
@@ -168,8 +185,9 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           price,
           compareAtPrice || null,
           badge || null,
-          inStock !== false ? 1 : 0,
-          stockQuantity || 10,
+          calculatedInStock,
+          parsedStock,
+          isActiveVal,
           description || '',
           materialsValue,
           careGuide || '',
@@ -388,6 +406,78 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       });
     }
 
+    // 1. Fetch current order status from DB before updating
+    const [existingOrders]: any = await pool.query(
+      `SELECT id, order_number, order_status, payment_method, payment_status FROM orders WHERE id = ? OR order_number = ? LIMIT 1`,
+      [id, id]
+    );
+
+    if (!existingOrders || existingOrders.length === 0) {
+      return res.status(404).json({ success: false, message: `Order #${id} not found in database.` });
+    }
+
+    const currentOrderStatus = existingOrders[0].order_status;
+    const currentPaymentStatus = existingOrders[0].payment_status;
+    const paymentMethod = (existingOrders[0].payment_method || '').toUpperCase();
+    const dbOrderId = existingOrders[0].id;
+
+    // 2. Handle Stock Restoration on Order Cancellation
+    if (newOrderStatus === 'CANCELLED' && currentOrderStatus !== 'CANCELLED') {
+      try {
+        const [orderItems]: any = await pool.query(
+          `SELECT product_id, product_name, quantity FROM order_items WHERE order_id = ?`,
+          [dbOrderId]
+        );
+
+        if (orderItems && orderItems.length > 0) {
+          for (const item of orderItems) {
+            const qty = Number(item.quantity) || 1;
+            const prodId = item.product_id;
+            const prodName = item.product_name;
+
+            await pool.query(
+              `UPDATE products 
+               SET stock_quantity = stock_quantity + ?, in_stock = 1 
+               WHERE id = ? OR name = ?`,
+              [qty, prodId || 0, prodName || '']
+            );
+            logger.info(`[STOCK RESTORE] Restored +${qty} stock for item "${prodName}" on cancellation of Order #${id}`);
+          }
+        }
+      } catch (stockErr: any) {
+        logger.warn(`Stock restoration error on order cancellation: ${stockErr.message}`);
+      }
+    }
+
+    // 3. Handle Stock Re-deduction if order is changed FROM CANCELLED back to active status
+    if (currentOrderStatus === 'CANCELLED' && newOrderStatus !== 'CANCELLED') {
+      try {
+        const [orderItems]: any = await pool.query(
+          `SELECT product_id, product_name, quantity FROM order_items WHERE order_id = ?`,
+          [dbOrderId]
+        );
+
+        if (orderItems && orderItems.length > 0) {
+          for (const item of orderItems) {
+            const qty = Number(item.quantity) || 1;
+            const prodId = item.product_id;
+            const prodName = item.product_name;
+
+            await pool.query(
+              `UPDATE products 
+               SET stock_quantity = GREATEST(0, stock_quantity - ?),
+                   in_stock = IF((stock_quantity - ?) <= 0, 0, 1)
+               WHERE id = ? OR name = ?`,
+              [qty, qty, prodId || 0, prodName || '']
+            );
+            logger.info(`[STOCK RE-DEDUCT] Re-deducted -${qty} stock for item "${prodName}" on reactivating Order #${id}`);
+          }
+        }
+      } catch (stockErr: any) {
+        logger.warn(`Stock re-deduction error on order un-cancellation: ${stockErr.message}`);
+      }
+    }
+
     let dateColumnUpdate = '';
     if (newOrderStatus === 'PROCESSING') {
       dateColumnUpdate = `, processing_at = COALESCE(processing_at, CURRENT_TIMESTAMP)`;
@@ -402,9 +492,32 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     let query = `UPDATE orders SET order_status = ?${dateColumnUpdate}`;
     const queryParams: any[] = [newOrderStatus];
 
+    // Auto-transition payment status for Cash on Delivery orders upon delivery
+    let targetPaymentStatus: string | null = null;
     if (paymentStatus) {
+      targetPaymentStatus = String(paymentStatus).toUpperCase();
+    } else if (newOrderStatus === 'DELIVERED') {
+      if (paymentMethod === 'COD' || paymentMethod.includes('CASH')) {
+        targetPaymentStatus = 'PAID';
+        logger.info(`[AUTO-PAYMENT] Order #${id} (COD) marked as DELIVERED -> Auto-updating payment_status to PAID`);
+      }
+    }
+
+    if (targetPaymentStatus) {
       query += `, payment_status = ?`;
-      queryParams.push(paymentStatus.toUpperCase());
+      queryParams.push(targetPaymentStatus);
+    }
+
+    if (req.body.trackingCode !== undefined || req.body.tracking_code !== undefined) {
+      const codeVal = req.body.trackingCode !== undefined ? req.body.trackingCode : req.body.tracking_code;
+      query += `, tracking_code = ?`;
+      queryParams.push(codeVal && codeVal.trim() ? codeVal.trim() : null);
+    }
+
+    if (req.body.courierName !== undefined || req.body.courier_name !== undefined) {
+      const courierVal = req.body.courierName !== undefined ? req.body.courierName : req.body.courier_name;
+      query += `, courier_name = ?`;
+      queryParams.push(courierVal && courierVal.trim() ? courierVal.trim() : null);
     }
 
     query += ` WHERE id = ? OR order_number = ?`;
@@ -416,18 +529,63 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       return res.status(404).json({ success: false, message: `Order #${id} not found in database.` });
     }
 
-    logger.info(`Order #${id} status updated to ${newOrderStatus} in MySQL DB.`);
+    logger.info(`Order #${id} status updated from ${currentOrderStatus} to ${newOrderStatus} in MySQL DB.`);
 
     return res.status(200).json({
       success: true,
       message: `Order #${id} status updated to ${newOrderStatus} in database.`,
       data: {
         orderId: id,
-        orderStatus: newOrderStatus
+        orderStatus: newOrderStatus,
+        paymentStatus: targetPaymentStatus || currentPaymentStatus
       }
     });
   } catch (err: any) {
     logger.error(`updateOrderStatus error: ${err.message}`);
+    next(err);
+  }
+};
+
+/**
+ * Admin: Update Order Payment Status directly
+ * PUT /api/v1/admin/orders/:id/payment-status
+ */
+export const updateOrderPaymentStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { paymentStatus } = req.body;
+
+    const newPaymentStatus = (paymentStatus || '').toUpperCase();
+    const validPaymentStatuses = ['PENDING', 'PAID', 'FAILED', 'REFUNDED'];
+
+    if (!validPaymentStatuses.includes(newPaymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid payment status "${newPaymentStatus}". Allowed: ${validPaymentStatuses.join(', ')}`
+      });
+    }
+
+    const [result]: any = await pool.query(
+      `UPDATE orders SET payment_status = ? WHERE id = ? OR order_number = ?`,
+      [newPaymentStatus, id, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: `Order #${id} not found in database.` });
+    }
+
+    logger.info(`Order #${id} payment status updated to ${newPaymentStatus} by Admin.`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Order #${id} payment status updated to ${newPaymentStatus}.`,
+      data: {
+        orderId: id,
+        paymentStatus: newPaymentStatus
+      }
+    });
+  } catch (err: any) {
+    logger.error(`updateOrderPaymentStatus error: ${err.message}`);
     next(err);
   }
 };
@@ -549,15 +707,12 @@ export const createAdminUser = async (req: Request, res: Response, next: NextFun
         data: { id: result.insertId, name, email, role: 'ADMIN' }
       });
     } catch (dbErr: any) {
-      logger.warn(`DB insertion warning for new admin fallback: ${dbErr.message}`);
+      logger.error(`DB error creating admin user: ${dbErr.message}`);
+      return res.status(500).json({
+        success: false,
+        message: dbErr.message || 'Failed to create admin user in database.'
+      });
     }
-
-    const mockAdminId = Math.floor(Date.now() / 1000);
-    return res.status(201).json({
-      success: true,
-      message: 'New Admin account registered.',
-      data: { id: mockAdminId, name, email, role: 'ADMIN' }
-    });
   } catch (err) {
     next(err);
   }
@@ -763,6 +918,18 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
     );
     const total = Number(countResult[0]?.total || 0);
 
+    // Aggregation query for order financial summary metrics
+    const [summaryResult]: any = await pool.query(
+      `SELECT 
+         COALESCE(SUM(o.total_amount), 0) as totalRevenue,
+         COALESCE(SUM(CASE WHEN o.payment_status = 'PAID' THEN o.total_amount ELSE 0 END), 0) as paidRevenue,
+         COALESCE(SUM(CASE WHEN o.payment_status = 'PENDING' THEN o.total_amount ELSE 0 END), 0) as pendingRevenue,
+         COALESCE(SUM(CASE WHEN o.order_status = 'CANCELLED' THEN o.total_amount ELSE 0 END), 0) as cancelledRevenue
+       FROM orders o ${whereClause}`,
+      params
+    );
+    const summaryData = summaryResult && summaryResult[0] ? summaryResult[0] : {};
+
     // Fetch order items for each order
     const ordersWithItems = await Promise.all(
       (orders || []).map(async (order: any) => {
@@ -791,6 +958,12 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
       success: true,
       data: {
         orders: ordersWithItems,
+        summary: {
+          totalRevenue: Number(summaryData.totalRevenue || 0),
+          paidRevenue: Number(summaryData.paidRevenue || 0),
+          pendingRevenue: Number(summaryData.pendingRevenue || 0),
+          cancelledRevenue: Number(summaryData.cancelledRevenue || 0)
+        },
         pagination: {
           total,
           limit:  pageLimit,

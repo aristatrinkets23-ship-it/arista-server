@@ -38,7 +38,13 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
       success: true,
       message: 'Account created successfully.',
       data: {
-        user: { id: userId, name: name.trim(), email: cleanEmail, role: 'CUSTOMER' },
+        user: {
+          id: userId,
+          name: name.trim(),
+          email: cleanEmail,
+          phone: phone ? phone.trim() : '',
+          role: 'CUSTOMER'
+        },
         token
       }
     });
@@ -74,7 +80,13 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       success: true,
       message: 'Sign in successful.',
       data: {
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || '',
+          role: user.role
+        },
         token
       }
     });
@@ -93,12 +105,24 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
     const token = authHeader.split(' ')[1];
     const decoded: any = jwt.verify(token, JWT_SECRET);
 
+    const [rows]: any = await pool.query(
+      `SELECT id, name, email, phone, role FROM users WHERE id = ? OR email = ?`,
+      [decoded.userId, decoded.email]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const user = rows[0];
     return res.status(200).json({
       success: true,
       data: {
-        id: decoded.userId,
-        email: decoded.email,
-        role: decoded.role
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+        role: user.role
       }
     });
   } catch (err) {
@@ -199,6 +223,93 @@ export const resetPasswordWithOtp = async (req: Request, res: Response, next: Ne
     return res.status(200).json({
       success: true,
       message: 'Your password has been reset successfully! You can now sign in with your new password.'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateUserProfile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, phone, email } = req.body;
+    const authUser = (req as any).user;
+    const cleanEmail = (email || (authUser ? authUser.email : '')).trim().toLowerCase();
+
+    if (!cleanEmail) {
+      return res.status(400).json({ success: false, message: 'User email is required.' });
+    }
+
+    const trimmedName = name !== undefined && name !== null ? String(name).trim() : null;
+    const trimmedPhone = phone !== undefined && phone !== null ? String(phone).trim() : null;
+
+    if (trimmedName !== null && trimmedPhone !== null) {
+      await pool.query(
+        `UPDATE users SET name = ?, phone = ? WHERE email = ?`,
+        [trimmedName, trimmedPhone, cleanEmail]
+      );
+    } else if (trimmedName !== null) {
+      await pool.query(
+        `UPDATE users SET name = ? WHERE email = ?`,
+        [trimmedName, cleanEmail]
+      );
+    } else if (trimmedPhone !== null) {
+      await pool.query(
+        `UPDATE users SET phone = ? WHERE email = ?`,
+        [trimmedPhone, cleanEmail]
+      );
+    }
+
+    const [rows]: any = await pool.query(`SELECT id, name, email, phone, role FROM users WHERE email = ?`, [cleanEmail]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User account not found.' });
+    }
+    const updatedUser = rows[0];
+
+    logger.info(`User profile updated for: ${cleanEmail} (Name: ${updatedUser.name}, Phone: ${updatedUser.phone})`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile details updated successfully.',
+      data: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone || '',
+        role: updatedUser.role
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const changeUserPassword = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { oldPassword, newPassword, email } = req.body;
+    const user = (req as any).user;
+    const cleanEmail = (email || (user ? user.email : '')).trim().toLowerCase();
+
+    if (!cleanEmail || !oldPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current password, new password, and email are required.' });
+    }
+
+    const [rows]: any = await pool.query(`SELECT * FROM users WHERE email = ?`, [cleanEmail]);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const userObj = rows[0];
+    const isMatch = await bcrypt.compare(oldPassword, userObj.password);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Current password does not match.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await pool.query(`UPDATE users SET password = ? WHERE id = ?`, [hashedPassword, userObj.id]);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password updated successfully.'
     });
   } catch (err) {
     next(err);

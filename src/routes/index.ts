@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { getProducts, getProductBySlug, getCategories } from '../controllers/product.controller';
-import { registerUser, loginUser, getCurrentUser, forgotPassword, verifyOtp, resetPasswordWithOtp } from '../controllers/auth.controller';
-import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder } from '../controllers/order.controller';
+import { registerUser, loginUser, getCurrentUser, forgotPassword, verifyOtp, resetPasswordWithOtp, updateUserProfile, changeUserPassword } from '../controllers/auth.controller';
+import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder, getMyOrders, downloadInvoicePdf } from '../controllers/order.controller';
+import { getPublicSettingsController, getAdminSettingsController, updateAdminSettingsController } from '../controllers/settings.controller';
+import { getUserAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from '../controllers/address.controller';
 import {
   getAdminMetrics,
   createProduct,
@@ -11,6 +13,7 @@ import {
   updateCategory,
   deleteCategory,
   updateOrderStatus,
+  updateOrderPaymentStatus,
   verifyAdmin,
   updateAdminProfile,
   createAdminUser,
@@ -70,18 +73,32 @@ router.get('/auth/me', getCurrentUser);
 router.post('/auth/forgot-password', forgotPassword);
 router.post('/auth/verify-otp', verifyOtp);
 router.post('/auth/reset-password-otp', resetPasswordWithOtp);
+router.put('/auth/update-profile', optionalAuthenticateJwt, updateUserProfile);
+router.put('/auth/change-password', optionalAuthenticateJwt, changeUserPassword);
+
+// Saved Shipping Addresses Routes
+router.get('/addresses', optionalAuthenticateJwt, getUserAddresses);
+router.post('/addresses', optionalAuthenticateJwt, addAddress);
+router.put('/addresses/:id', optionalAuthenticateJwt, updateAddress);
+router.delete('/addresses/:id', optionalAuthenticateJwt, deleteAddress);
+router.put('/addresses/:id/default', optionalAuthenticateJwt, setDefaultAddress);
 
 // Catalog Routes
 router.get('/products', getProducts);
 router.get('/products/:slug', getProductBySlug);
 router.get('/categories', getCategories);
 
+// Store Settings Routes (Public)
+router.get('/settings', getPublicSettingsController);
+
 // Order & Payment Routes
 router.post('/orders', createOrder);
 router.post('/orders/razorpay-order', createPaymentOrder);
 router.post('/orders/verify-payment', verifyPayment);
+router.get('/orders/my-orders', optionalAuthenticateJwt, getMyOrders);
 router.get('/orders/track/:trackingCode', trackOrder);     // Track by TRK- code
 router.get('/orders/:orderNumber', getOrderByNumber);      // Lookup by ART- order number
+router.get('/orders/:orderNumber/invoice-pdf', downloadInvoicePdf); // Download Tax Invoice PDF
 
 // Admin Protection Middleware (Applied to all /admin routes)
 const adminAuthStack = [authenticateJwt, requireRole(['ADMIN', 'SUPER_ADMIN'])];
@@ -98,6 +115,10 @@ router.delete('/admin/users/:id', adminAuthStack, deleteAdminUserById);
 // Homepage Config Admin Routes
 router.put('/admin/homepage-config', adminAuthStack, updateHomepageConfig);
 
+// Store Settings Admin Routes
+router.get('/admin/settings', adminAuthStack, getAdminSettingsController);
+router.put('/admin/settings', adminAuthStack, updateAdminSettingsController);
+
 // Product Admin Routes
 router.post('/admin/products', adminAuthStack, createProduct);
 router.put('/admin/products/:id', adminAuthStack, updateProduct);
@@ -109,6 +130,7 @@ router.put('/admin/categories/:id', adminAuthStack, updateCategory);
 router.delete('/admin/categories/:id', adminAuthStack, deleteCategory);
 
 router.put('/admin/orders/:id/status', adminAuthStack, updateOrderStatus);
+router.put('/admin/orders/:id/payment-status', adminAuthStack, updateOrderPaymentStatus);
 
 // Admin Orders List (with filters)
 router.get('/admin/orders', adminAuthStack, getAdminOrders);

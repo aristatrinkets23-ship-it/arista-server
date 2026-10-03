@@ -82,6 +82,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`gemstone\` VARCHAR(100) DEFAULT NULL,
         \`in_stock\` BOOLEAN NOT NULL DEFAULT TRUE,
         \`stock_quantity\` INT NOT NULL DEFAULT 10,
+        \`is_active\` TINYINT(1) NOT NULL DEFAULT 1,
         \`description\` TEXT DEFAULT NULL,
         \`materials\` TEXT DEFAULT NULL,
         \`care_guide\` TEXT DEFAULT NULL,
@@ -95,6 +96,10 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         INDEX \`idx_product_stock\` (\`in_stock\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    try {
+      await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`is_active\` TINYINT(1) NOT NULL DEFAULT 1`);
+    } catch (e) {}
 
     // 5. Create product_images table if not exists
     await connection.query(`
@@ -174,6 +179,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       CREATE TABLE IF NOT EXISTS \`orders\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
         \`order_number\` VARCHAR(50) NOT NULL UNIQUE,
+        \`invoice_number\` VARCHAR(50) UNIQUE DEFAULT NULL,
         \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL,
         \`user_id\` INT DEFAULT NULL,
         \`customer_name\` VARCHAR(100) NOT NULL,
@@ -248,6 +254,58 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // 14. Create user_addresses table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`user_addresses\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`user_id\` INT DEFAULT NULL,
+        \`user_email\` VARCHAR(150) NOT NULL,
+        \`full_name\` VARCHAR(100) NOT NULL,
+        \`phone\` VARCHAR(20) NOT NULL,
+        \`address_line\` TEXT NOT NULL,
+        \`city\` VARCHAR(100) NOT NULL,
+        \`state\` VARCHAR(100) NOT NULL,
+        \`pincode\` VARCHAR(20) NOT NULL,
+        \`is_default\` BOOLEAN NOT NULL DEFAULT FALSE,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_addr_user_id\` (\`user_id\`),
+        INDEX \`idx_addr_email\` (\`user_email\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 15. Create store_settings table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`store_settings\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`setting_key\` VARCHAR(100) NOT NULL UNIQUE,
+        \`setting_value\` TEXT DEFAULT NULL,
+        \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_setting_key\` (\`setting_key\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Seed default store settings if not exist
+    const defaultSettings: [string, string][] = [
+      ['gst_number', '24AAACA1234A1Z5'],
+      ['gst_percentage', '3.0'],
+      ['delivery_charge', '50.00'],
+      ['free_delivery_threshold', '600.00'],
+      ['company_name', 'Arista Trinkets Atelier'],
+      ['company_address', 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003'],
+      ['company_phone', '+91 98765 43210'],
+      ['company_email', 'concierge@aristatrinkets.com'],
+      ['invoice_prefix', 'INV-']
+    ];
+
+    for (const [key, val] of defaultSettings) {
+      await connection.query(
+        `INSERT IGNORE INTO \`store_settings\` (\`setting_key\`, \`setting_value\`) VALUES (?, ?)`,
+        [key, val]
+      );
+    }
+
     // 13. Alter columns in existing database to support base64 LONGTEXT images if needed
     try {
       await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
@@ -261,9 +319,30 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     try {
       await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
     } catch (e) { }
-    // 14. Add tracking_code and status timestamp columns to existing orders table if not exist
+    // 14. Add tracking_code, invoice_number and status timestamp columns to existing orders table if not exist
     try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL AFTER \`order_number\`;`);
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`invoice_number\` VARCHAR(50) UNIQUE DEFAULT NULL AFTER \`order_number\`;`);
+      await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`);
+    } catch (e) { }
+
+    // Backfill invoice_number for past orders if null
+    try {
+      const [ordersWithoutInvoice]: any = await connection.query(
+        `SELECT id, order_number, created_at FROM \`orders\` WHERE \`invoice_number\` IS NULL`
+      );
+      if (ordersWithoutInvoice && ordersWithoutInvoice.length > 0) {
+        for (const ord of ordersWithoutInvoice) {
+          const year = ord.created_at ? new Date(ord.created_at).getFullYear() : new Date().getFullYear();
+          const cleanNum = String(ord.order_number || ord.id).replace(/\D/g, '').padStart(6, '0');
+          const invNum = `INV-${year}-${cleanNum}`;
+          try {
+            await connection.query(`UPDATE \`orders\` SET \`invoice_number\` = ? WHERE \`id\` = ?`, [invNum, ord.id]);
+          } catch (invErr) { }
+        }
+      }
+    } catch (e) { }
+    try {
+      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL AFTER \`invoice_number\`;`);
       await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`);
     } catch (e) { }
     try {

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { getDefaultPlaceholder } from './product.controller';
+import { getStoreSettings } from '../services/storeSettings.service';
 
 const CART_EXPIRY_DAYS = Number(process.env.CART_EXPIRY_DAYS) || 30;
 
@@ -126,9 +127,10 @@ const fetchDbCartItems = async (userId: number | null, sessionId: string) => {
 };
 
 /**
- * Recalculate summary totals securely on server
+ * Recalculate summary totals securely on server using active store_settings
  */
-const calculateCartSummary = (items: any[]) => {
+const calculateCartSummary = async (items: any[]) => {
+  const settings = await getStoreSettings();
   const validItems = Array.isArray(items) ? items : [];
   const itemCount = validItems.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
   const subtotal = validItems.reduce((acc, item) => {
@@ -136,8 +138,12 @@ const calculateCartSummary = (items: any[]) => {
     const qty = Number(item.quantity) || 0;
     return acc + (price * qty);
   }, 0);
-  const estimatedShipping = subtotal > 5000 || subtotal === 0 ? 0 : 500;
-  const estimatedTax = Math.round(subtotal * 0.03); // 3% GST
+
+  const freeThreshold = Number(settings.freeDeliveryThreshold) || 600;
+  const baseDelivery = Number(settings.deliveryCharge) !== undefined ? Number(settings.deliveryCharge) : 50;
+  const estimatedShipping = (subtotal >= freeThreshold || subtotal === 0) ? 0 : baseDelivery;
+  const gstRate = Number(settings.gstPercentage) || 3.0;
+  const estimatedTax = Math.round(subtotal * (gstRate / 100));
   const total = subtotal + estimatedShipping + estimatedTax;
 
   return {
@@ -147,6 +153,10 @@ const calculateCartSummary = (items: any[]) => {
     estimatedShipping,
     estimatedTax,
     total,
+    freeDeliveryThreshold: freeThreshold,
+    deliveryCharge: baseDelivery,
+    remainingForFreeDelivery: Math.max(0, freeThreshold - subtotal),
+    isFreeDeliveryUnlocked: subtotal >= freeThreshold && subtotal > 0,
     expiryDays: CART_EXPIRY_DAYS
   };
 };
@@ -158,7 +168,7 @@ export const getCart = async (req: Request, res: Response, next: NextFunction) =
   try {
     const { userId, sessionId } = getAuthAndSession(req);
     const items = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(items);
+    const summary = await calculateCartSummary(items);
 
     return res.status(200).json({
       success: true,
@@ -248,7 +258,7 @@ export const addToCart = async (req: Request, res: Response, next: NextFunction)
     }
 
     const items = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(items);
+    const summary = await calculateCartSummary(items);
 
     return res.status(200).json({
       success: true,
@@ -322,7 +332,7 @@ export const updateCartItem = async (req: Request, res: Response, next: NextFunc
     }
 
     const items = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(items);
+    const summary = await calculateCartSummary(items);
 
     return res.status(200).json({
       success: true,
@@ -370,7 +380,7 @@ export const removeCartItem = async (req: Request, res: Response, next: NextFunc
     await pool.query(delQuery, delParams);
 
     const items = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(items);
+    const summary = await calculateCartSummary(items);
 
     return res.status(200).json({
       success: true,
@@ -403,7 +413,7 @@ export const clearCart = async (req: Request, res: Response, next: NextFunction)
     await pool.query(delQuery, delParams);
 
     const items = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(items);
+    const summary = await calculateCartSummary(items);
 
     return res.status(200).json({
       success: true,
@@ -467,7 +477,7 @@ export const mergeCart = async (req: Request, res: Response, next: NextFunction)
         const [rows]: any = await pool.query(findQuery, findParams);
 
         if (rows && rows.length > 0) {
-          const newQty = rows[0].quantity + addQty;
+          const newQty = Math.max(rows[0].quantity, addQty);
           await pool.query(
             `UPDATE cart_items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [newQty, rows[0].id]
@@ -491,7 +501,7 @@ export const mergeCart = async (req: Request, res: Response, next: NextFunction)
     }
 
     const mergedItems = await fetchDbCartItems(userId, sessionId);
-    const summary = calculateCartSummary(mergedItems);
+    const summary = await calculateCartSummary(mergedItems);
 
     return res.status(200).json({
       success: true,

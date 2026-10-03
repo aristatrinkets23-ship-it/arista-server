@@ -3,6 +3,8 @@ import { createRazorpayOrder, verifyRazorpayPaymentSignature } from '../services
 import { sendOrderConfirmationEmail } from '../services/emailService';
 import { pool } from '../config/database';
 import { logger } from '../utils/logger';
+import { getStoreSettings } from '../services/storeSettings.service';
+import { generateInvoicePdf } from '../services/invoicePdf.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -183,61 +185,122 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       items, totalAmount, paymentMethod
     } = req.body;
 
+    if (!shippingAddress || !shippingAddress.trim() || !city || !city.trim() || !pincode || !pincode.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shipping address, city, and PIN code are required to place an order.'
+      });
+    }
+
+    // Validate PIN code — must be exactly 6 digits
+    const cleanPincode = String(pincode).trim().replace(/\D/g, '');
+    if (!/^\d{6}$/.test(cleanPincode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'PIN code must be exactly 6 digits (e.g. 395003).'
+      });
+    }
+
+    const cleanPhone = (customerPhone || '').replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 10-digit mobile phone number.'
+      });
+    }
+
     // 1. Generate sequential order number  →  ART-000001, ART-000002, …
     const orderNumber = await generateOrderNumber();
 
-    // 2. Generate unique random tracking code  →  TRK-A3FG92KLM7PQ
-    const trackingCode = await generateTrackingCode();
+    // 2. Fetch Active Store Settings from Database
+    const storeSettings = await getStoreSettings();
+
+    // 3. Recalculate Subtotal from items
+    let calculatedSubtotal = 0;
+    if (items && Array.isArray(items)) {
+      calculatedSubtotal = items.reduce((acc: number, it: any) => {
+        const p = Number(it.price) || 0;
+        const q = Number(it.quantity) || 1;
+        return acc + (p * q);
+      }, 0);
+    }
+    if (calculatedSubtotal === 0 && totalAmount) {
+      calculatedSubtotal = Number(totalAmount);
+    }
+
+    // 4. Calculate Delivery Fee based on DB Free-Delivery Threshold
+    const freeThreshold = Number(storeSettings.freeDeliveryThreshold) || 600;
+    const baseDeliveryFee = Number(storeSettings.deliveryCharge) !== undefined ? Number(storeSettings.deliveryCharge) : 50;
+    const calculatedShipping = (calculatedSubtotal >= freeThreshold || calculatedSubtotal === 0) ? 0 : baseDeliveryFee;
+
+    // 5. Calculate GST Tax
+    const gstRate = Number(storeSettings.gstPercentage) || 3.0;
+    const calculatedTax = Math.round(calculatedSubtotal * (gstRate / 100));
+
+    // 6. Calculate Final Total Amount
+    const finalTotalAmount = calculatedSubtotal + calculatedShipping + calculatedTax;
+
+    // 7. Generate Deterministic Invoice Number: INV-YYYY-XXXXXX
+    const currentYear = new Date().getFullYear();
+    const cleanNum = orderNumber.replace(/\D/g, '').padStart(6, '0');
+    const invoiceNumber = `${storeSettings.invoicePrefix || 'INV-'}${currentYear}-${cleanNum}`;
+
+    // Tracking code is NULL on creation; assigned when dispatched by Admin
+    const trackingCode: string | null = null;
 
     let orderId: number | null = null;
 
     try {
-      // Primary INSERT — includes tracking_code (works once migration has run)
+      // Primary INSERT with invoice_number, subtotal, shipping_fee, tax, and total_amount
       const [result]: any = await pool.query(
         `INSERT INTO orders
-          (order_number, tracking_code, customer_name, customer_email, customer_phone,
+          (order_number, invoice_number, tracking_code, customer_name, customer_email, customer_phone,
            shipping_address, city, state, pincode,
-           subtotal, total_amount, payment_method, payment_status, order_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
+           subtotal, shipping_fee, tax, total_amount, payment_method, payment_status, order_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
         [
           orderNumber,
+          invoiceNumber,
           trackingCode,
-          customerName    || '',
-          customerEmail   || '',
-          customerPhone   || '',
-          shippingAddress || '',
-          city            || '',
-          state           || '',
-          pincode         || '',
-          totalAmount     || 0,
-          totalAmount     || 0,
-          paymentMethod   || 'RAZORPAY'
+          customerName       || '',
+          customerEmail      || '',
+          customerPhone      || '',
+          shippingAddress    || '',
+          city               || '',
+          state              || '',
+          pincode            || '',
+          calculatedSubtotal,
+          calculatedShipping,
+          calculatedTax,
+          finalTotalAmount,
+          paymentMethod      || 'RAZORPAY'
         ]
       );
       orderId = result.insertId;
     } catch (insertErr: any) {
-      // Fallback: DB may not have tracking_code column yet (pre-migration)
-      // Insert without it so the order is always persisted
-      logger.warn(`Primary order INSERT failed (${insertErr.message}). Retrying without tracking_code.`);
+      // Fallback: Retry without invoice_number if older DB schema
+      logger.warn(`Primary order INSERT failed (${insertErr.message}). Retrying fallback insert.`);
       try {
         const [fallbackResult]: any = await pool.query(
           `INSERT INTO orders
             (order_number, customer_name, customer_email, customer_phone,
              shipping_address, city, state, pincode,
-             subtotal, total_amount, payment_method, payment_status, order_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
+             subtotal, shipping_fee, tax, total_amount, payment_method, payment_status, order_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
           [
             orderNumber,
-            customerName    || '',
-            customerEmail   || '',
-            customerPhone   || '',
-            shippingAddress || '',
-            city            || '',
-            state           || '',
-            pincode         || '',
-            totalAmount     || 0,
-            totalAmount     || 0,
-            paymentMethod   || 'RAZORPAY'
+            customerName       || '',
+            customerEmail      || '',
+            customerPhone      || '',
+            shippingAddress    || '',
+            city               || '',
+            state              || '',
+            pincode            || '',
+            calculatedSubtotal,
+            calculatedShipping,
+            calculatedTax,
+            finalTotalAmount,
+            paymentMethod      || 'RAZORPAY'
           ]
         );
         orderId = fallbackResult.insertId;
@@ -246,19 +309,68 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       }
     }
 
+    // 3. Stock Availability Pre-check & Validation
+    if (items && Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        const targetId = item.id || item.product_id || 0;
+        const targetName = item.title || item.name || '';
+        const requestedQty = Number(item.quantity) || 1;
+
+        try {
+          const [prods]: any = await pool.query(
+            `SELECT id, name, stock_quantity, in_stock FROM products WHERE id = ? OR name = ? LIMIT 1`,
+            [targetId, targetName]
+          );
+
+          if (prods && prods.length > 0) {
+            const product = prods[0];
+            if (product.in_stock === 0 || product.stock_quantity <= 0) {
+              return res.status(400).json({
+                success: false,
+                message: `Product "${product.name}" is currently out of stock.`
+              });
+            }
+            if (product.stock_quantity < requestedQty) {
+              return res.status(400).json({
+                success: false,
+                message: `Cannot place order: Product "${product.name}" only has ${product.stock_quantity} item(s) left in stock (you requested ${requestedQty}).`
+              });
+            }
+          }
+        } catch (checkErr: any) {
+          logger.warn(`Stock pre-check warning: ${checkErr.message}`);
+        }
+      }
+    }
+
     if (orderId) {
       logger.info(`Order created: ${orderNumber} | Tracking: ${trackingCode} (DB ID: ${orderId})`);
 
       if (items && Array.isArray(items)) {
         for (const item of items) {
+          const targetId = item.id || item.product_id || 0;
+          const targetName = item.title || item.name || '';
+          const qty = Number(item.quantity) || 1;
+          const unitPrice = Number(item.price) || 0;
+
           try {
             await pool.query(
-              `INSERT INTO order_items (order_id, product_name, unit_price, metal_type, quantity, total_price)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-              [orderId, item.title || item.name, item.price, item.metalType || '18K Warm Gold', item.quantity, item.price * item.quantity]
+              `INSERT INTO order_items (order_id, product_id, product_name, unit_price, metal_type, quantity, total_price)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [orderId, targetId || null, targetName, unitPrice, item.metalType || '18K Warm Gold', qty, unitPrice * qty]
             );
+
+            // Deduct stock quantity and update in_stock flag in products table
+            await pool.query(
+              `UPDATE products 
+               SET stock_quantity = GREATEST(0, stock_quantity - ?),
+                   in_stock = IF((stock_quantity - ?) <= 0, 0, in_stock)
+               WHERE id = ? OR name = ?`,
+              [qty, qty, targetId, targetName]
+            );
+            logger.info(`[STOCK DEDUCT] Reduced stock by -${qty} for product "${targetName}" (Order #${orderNumber})`);
           } catch (itemErr: any) {
-            logger.warn(`order_items INSERT failed for order ${orderNumber}: ${itemErr.message}`);
+            logger.warn(`order_items INSERT/stock update failed for order ${orderNumber}: ${itemErr.message}`);
           }
         }
       }
@@ -274,7 +386,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
       sendOrderConfirmationEmail({
         orderNumber,
-        trackingCode,
+        trackingCode: trackingCode || '',
         customerName:    customerName    || 'Valued Customer',
         customerEmail:   customerEmail   || '',
         customerPhone:   customerPhone   || '',
@@ -283,10 +395,10 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         state:           state           || '',
         pincode:         pincode         || '',
         items:           savedItems,
-        subtotal:        Number(totalAmount) || 0,
-        shippingFee:     0,
-        tax:             0,
-        totalAmount:     Number(totalAmount) || 0,
+        subtotal:        calculatedSubtotal,
+        shippingFee:     calculatedShipping,
+        tax:             calculatedTax,
+        totalAmount:     finalTotalAmount,
         paymentMethod:   paymentMethod   || 'RAZORPAY',
         paymentStatus:   'PENDING',
         orderStatus:     'PENDING',
@@ -300,8 +412,12 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       message: 'Order placed successfully.',
       data: {
         orderNumber,
+        invoiceNumber,
         trackingCode,
-        totalAmount,
+        subtotal: calculatedSubtotal,
+        shippingFee: calculatedShipping,
+        tax: calculatedTax,
+        totalAmount: finalTotalAmount,
         customerName,
         customerEmail,
         orderStatus: 'PENDING',
@@ -350,10 +466,14 @@ export const trackOrder = async (req: Request, res: Response, next: NextFunction
 
       const order = rows[0];
 
-      // Fetch order items
+      // Fetch order items with product images and slugs
       const [items]: any = await pool.query(
-        `SELECT product_name, unit_price, metal_type, quantity, total_price
-         FROM order_items WHERE order_id = ?`,
+        `SELECT oi.id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price,
+                COALESCE(p.image, '') as product_image,
+                COALESCE(p.slug, '') as product_slug
+         FROM order_items oi
+         LEFT JOIN products p ON (oi.product_id = p.id OR (oi.product_id IS NULL AND oi.product_name = p.name))
+         WHERE oi.order_id = ?`,
         [order.id]
       );
 
@@ -418,28 +538,193 @@ export const getOrderByNumber = async (req: Request, res: Response, next: NextFu
   try {
     const { orderNumber } = req.params;
 
-    try {
-      const [rows]: any = await pool.query(`SELECT * FROM orders WHERE order_number = ?`, [orderNumber]);
-      if (rows && rows.length > 0) {
-        const order = rows[0];
-        const [items]: any = await pool.query(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
-        return res.status(200).json({ success: true, data: { ...order, items } });
-      }
-    } catch (dbErr) {
-      // Fallback
+    const [rows]: any = await pool.query(`SELECT * FROM orders WHERE order_number = ?`, [orderNumber]);
+    if (rows && rows.length > 0) {
+      const order = rows[0];
+      const [items]: any = await pool.query(
+        `SELECT oi.id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price,
+                COALESCE(p.image, '') as product_image,
+                COALESCE(p.slug, '') as product_slug
+         FROM order_items oi
+         LEFT JOIN products p ON (oi.product_id = p.id OR (oi.product_id IS NULL AND oi.product_name = p.name))
+         WHERE oi.order_id = ?`,
+        [order.id]
+      );
+      return res.status(200).json({ success: true, data: { ...order, items } });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        order_number: orderNumber,
-        customer_name: 'Customer',
-        total_amount: 45000,
-        payment_status: 'PAID',
-        order_status: 'PROCESSING'
-      }
+    return res.status(404).json({
+      success: false,
+      message: `Order #${orderNumber} not found.`
     });
   } catch (err) {
     next(err);
   }
 };
+
+/**
+ * Gets Order History for Logged In Customer
+ * GET /api/v1/orders/my-orders
+ */
+export const getMyOrders = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const email = req.query.email || (user ? user.email : null);
+    const userId = user ? user.id : null;
+
+    if (!email && !userId) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    let query = `
+      SELECT o.*
+      FROM orders o
+      WHERE 1=0
+    `;
+    const queryParams: any[] = [];
+
+    if (userId) {
+      query += ` OR o.user_id = ?`;
+      queryParams.push(userId);
+    }
+    if (email) {
+      query += ` OR LOWER(o.customer_email) = LOWER(?)`;
+      queryParams.push(String(email).trim());
+    }
+
+    query += ` ORDER BY o.id DESC`;
+
+    const [orders]: any = await pool.query(query, queryParams);
+
+    const ordersWithItems = await Promise.all(
+      (orders || []).map(async (order: any) => {
+        const [items]: any = await pool.query(
+          `SELECT oi.id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price,
+                  COALESCE(p.image, '') as product_image,
+                  COALESCE(p.slug, '') as product_slug
+           FROM order_items oi
+           LEFT JOIN products p ON (oi.product_id = p.id OR (oi.product_id IS NULL AND oi.product_name = p.name))
+           WHERE oi.order_id = ?`,
+          [order.id]
+        );
+
+        const statusSteps = [
+          { status: 'PENDING', label: 'Order Placed', date: order.created_at },
+          { status: 'PROCESSING', label: 'In Progress', date: order.processing_at },
+          { status: 'SHIPPED', label: 'Shipped', date: order.shipped_at },
+          { status: 'DELIVERED', label: 'Delivered', date: order.delivered_at }
+        ];
+
+        const currentIdx = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED'].indexOf(order.order_status);
+        const timeline = statusSteps.map((stepObj, idx) => ({
+          status: stepObj.status,
+          label: stepObj.label,
+          date: stepObj.date || null,
+          completed: idx <= currentIdx && order.order_status !== 'CANCELLED',
+          active: stepObj.status === order.order_status && order.order_status !== 'CANCELLED'
+        }));
+
+        return {
+          ...order,
+          items: items || [],
+          timeline
+        };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: ordersWithItems
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Downloads official A4 Tax Invoice PDF
+ * GET /api/v1/orders/:orderNumber/invoice-pdf
+ */
+export const downloadInvoicePdf = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { orderNumber } = req.params;
+
+    if (!orderNumber) {
+      return res.status(400).json({ success: false, message: 'Order number is required.' });
+    }
+
+    const [rows]: any = await pool.query(
+      `SELECT * FROM orders WHERE order_number = ? OR invoice_number = ? OR id = ? LIMIT 1`,
+      [orderNumber, orderNumber, isNaN(Number(orderNumber)) ? 0 : Number(orderNumber)]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Order #${orderNumber} not found.`
+      });
+    }
+
+    const order = rows[0];
+
+    const [items]: any = await pool.query(
+      `SELECT oi.id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price
+       FROM order_items oi
+       WHERE oi.order_id = ?`,
+      [order.id]
+    );
+
+    const storeSettings = await getStoreSettings();
+
+    const invoiceNum = order.invoice_number ||
+      `${storeSettings.invoicePrefix || 'INV-'}${new Date(order.created_at || Date.now()).getFullYear()}-${String(order.order_number).replace(/\D/g, '').padStart(6, '0')}`;
+
+    // Ensure order in DB has invoice_number if it was previously null
+    if (!order.invoice_number) {
+      try {
+        await pool.query(`UPDATE orders SET invoice_number = ? WHERE id = ?`, [invoiceNum, order.id]);
+        order.invoice_number = invoiceNum;
+      } catch (e) { }
+    }
+
+    const filename = `Invoice-${invoiceNum}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
+    await generateInvoicePdf(
+      {
+        order_number: order.order_number,
+        invoice_number: invoiceNum,
+        created_at: order.created_at,
+        customer_name: order.customer_name,
+        customer_email: order.customer_email,
+        customer_phone: order.customer_phone,
+        shipping_address: order.shipping_address,
+        city: order.city,
+        state: order.state,
+        pincode: order.pincode,
+        subtotal: Number(order.subtotal) || 0,
+        shipping_fee: Number(order.shipping_fee) || 0,
+        tax: Number(order.tax) || 0,
+        total_amount: Number(order.total_amount) || 0,
+        payment_method: order.payment_method,
+        payment_status: order.payment_status,
+        tracking_code: order.tracking_code,
+        items: (items || []).map((it: any) => ({
+          product_name: it.product_name,
+          metal_type: it.metal_type,
+          quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.unit_price) || 0,
+          total_price: Number(it.total_price) || (Number(it.unit_price) * Number(it.quantity)),
+          hsn_code: '7117'
+        }))
+      },
+      storeSettings,
+      res
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
