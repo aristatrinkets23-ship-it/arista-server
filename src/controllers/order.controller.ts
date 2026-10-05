@@ -16,12 +16,13 @@ import { generateInvoicePdf } from '../services/invoicePdf.service';
  * Format : ART-XXXXXX  (prefix + 6-digit zero-padded counter)
  * Examples: ART-000001 → ART-000002 → ART-000123
  */
-const generateOrderNumber = async (): Promise<string> => {
+const generateOrderNumber = async (connection?: any): Promise<string> => {
   const PREFIX = 'ART-';
   const PAD_LENGTH = 6;
+  const db = connection || pool;
 
   try {
-    const [rows]: any = await pool.query(
+    const [rows]: any = await db.query(
       `SELECT order_number FROM orders
        WHERE order_number REGEXP '^ART-[0-9]+$'
        ORDER BY CAST(SUBSTRING(order_number, ?) AS UNSIGNED) DESC
@@ -185,6 +186,14 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       items, totalAmount, paymentMethod
     } = req.body;
 
+    // 1. Basic Payload Validation
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order must contain at least one item.'
+      });
+    }
+
     if (!shippingAddress || !shippingAddress.trim() || !city || !city.trim() || !pincode || !pincode.trim()) {
       return res.status(400).json({
         success: false,
@@ -192,7 +201,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    // Validate PIN code — must be exactly 6 digits
     const cleanPincode = String(pincode).trim().replace(/\D/g, '');
     if (!/^\d{6}$/.test(cleanPincode)) {
       return res.status(400).json({
@@ -209,208 +217,230 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    // 1. Generate sequential order number  →  ART-000001, ART-000002, …
-    const orderNumber = await generateOrderNumber();
+    const cleanEmail = (customerEmail || '').trim();
+    if (!cleanEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer email is required.'
+      });
+    }
 
-    // 2. Fetch Active Store Settings from Database
+    // 2. Product Existence, Active Status & Stock Availability Pre-check
+    // (Strictly verified BEFORE any database insertion or stock alteration)
+    const validatedItems: Array<{
+      productId: number;
+      productName: string;
+      unitPrice: number;
+      quantity: number;
+      metalType: string;
+      totalPrice: number;
+    }> = [];
+
+    for (const item of items) {
+      const targetId = Number(item.id || item.product_id || item.productId) || 0;
+      const targetName = String(item.title || item.name || '').trim();
+      const requestedQty = Math.max(1, Number(item.quantity) || 1);
+
+      let productRow: any = null;
+      if (targetId > 0) {
+        const [rows]: any = await pool.query(
+          `SELECT id, name, price, stock_quantity, in_stock, is_active FROM products WHERE id = ? LIMIT 1`,
+          [targetId]
+        );
+        if (rows && rows.length > 0) {
+          productRow = rows[0];
+        }
+      }
+
+      if (!productRow && targetName) {
+        const [rows]: any = await pool.query(
+          `SELECT id, name, price, stock_quantity, in_stock, is_active FROM products WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1`,
+          [targetName]
+        );
+        if (rows && rows.length > 0) {
+          productRow = rows[0];
+        }
+      }
+
+      if (!productRow) {
+        return res.status(400).json({
+          success: false,
+          message: `Product "${targetName || targetId}" was not found in catalog.`
+        });
+      }
+
+      // Check product active / visibility status
+      if (productRow.is_active === 0 || productRow.is_active === false) {
+        return res.status(400).json({
+          success: false,
+          message: `Product "${productRow.name}" is currently unavailable.`
+        });
+      }
+
+      // Check stock availability
+      const currentStock = Number(productRow.stock_quantity) || 0;
+      const isInStock = Boolean(productRow.in_stock !== 0 && productRow.in_stock !== false);
+
+      if (!isInStock || currentStock <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Product "${productRow.name}" is currently out of stock.`
+        });
+      }
+
+      if (currentStock < requestedQty) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot place order: Product "${productRow.name}" only has ${currentStock} item(s) left in stock (you requested ${requestedQty}).`
+        });
+      }
+
+      const unitPrice = (item.price !== undefined && !isNaN(Number(item.price)) && Number(item.price) > 0)
+        ? Number(item.price)
+        : Number(productRow.price);
+
+      validatedItems.push({
+        productId: productRow.id,
+        productName: productRow.name,
+        unitPrice,
+        quantity: requestedQty,
+        metalType: item.metalType || '18K Warm Gold',
+        totalPrice: unitPrice * requestedQty
+      });
+    }
+
+    // 3. Fetch Active Store Settings & Calculate Financial Totals
     const storeSettings = await getStoreSettings();
 
-    // 3. Recalculate Subtotal from items
-    let calculatedSubtotal = 0;
-    if (items && Array.isArray(items)) {
-      calculatedSubtotal = items.reduce((acc: number, it: any) => {
-        const p = Number(it.price) || 0;
-        const q = Number(it.quantity) || 1;
-        return acc + (p * q);
-      }, 0);
-    }
-    if (calculatedSubtotal === 0 && totalAmount) {
-      calculatedSubtotal = Number(totalAmount);
-    }
-
-    // 4. Calculate Delivery Fee based on DB Free-Delivery Threshold
+    const calculatedSubtotal = validatedItems.reduce((acc, it) => acc + it.totalPrice, 0);
     const freeThreshold = Number(storeSettings.freeDeliveryThreshold) || 600;
     const baseDeliveryFee = Number(storeSettings.deliveryCharge) !== undefined ? Number(storeSettings.deliveryCharge) : 50;
     const calculatedShipping = (calculatedSubtotal >= freeThreshold || calculatedSubtotal === 0) ? 0 : baseDeliveryFee;
 
-    // 5. Calculate GST Tax
     const gstRate = Number(storeSettings.gstPercentage) || 3.0;
     const calculatedTax = Math.round(calculatedSubtotal * (gstRate / 100));
-
-    // 6. Calculate Final Total Amount
     const finalTotalAmount = calculatedSubtotal + calculatedShipping + calculatedTax;
 
-    // 7. Generate Deterministic Invoice Number: INV-YYYY-XXXXXX
-    const currentYear = new Date().getFullYear();
-    const cleanNum = orderNumber.replace(/\D/g, '').padStart(6, '0');
-    const invoiceNumber = `${storeSettings.invoicePrefix || 'INV-'}${currentYear}-${cleanNum}`;
-
-    // Tracking code is NULL on creation; assigned when dispatched by Admin
+    // 4. Atomic MySQL Transaction: Create Order, Order Items & Deduct Stock
+    const connection = await pool.getConnection();
+    let orderNumber = '';
+    let invoiceNumber = '';
+    let orderId: number | null = null;
     const trackingCode: string | null = null;
 
-    let orderId: number | null = null;
-
     try {
-      // Primary INSERT with invoice_number, subtotal, shipping_fee, tax, and total_amount
-      const [result]: any = await pool.query(
+      await connection.beginTransaction();
+
+      // Sequential order number inside transaction lock
+      orderNumber = await generateOrderNumber(connection);
+
+      const currentYear = new Date().getFullYear();
+      const cleanNum = orderNumber.replace(/\D/g, '').padStart(6, '0');
+      invoiceNumber = `${storeSettings.invoicePrefix || 'INV-'}${currentYear}-${cleanNum}`;
+
+      // Check if user exists to link user_id
+      let linkedUserId: number | null = (req as any).user?.id || null;
+      if (!linkedUserId && cleanEmail) {
+        const [userRows]: any = await connection.query(
+          `SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+          [cleanEmail]
+        );
+        if (userRows && userRows.length > 0) {
+          linkedUserId = userRows[0].id;
+        }
+      }
+
+      const [orderResult]: any = await connection.query(
         `INSERT INTO orders
-          (order_number, invoice_number, tracking_code, customer_name, customer_email, customer_phone,
+          (order_number, invoice_number, tracking_code, user_id, customer_name, customer_email, customer_phone,
            shipping_address, city, state, pincode,
            subtotal, shipping_fee, tax, total_amount, payment_method, payment_status, order_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
         [
           orderNumber,
           invoiceNumber,
           trackingCode,
-          customerName       || '',
-          customerEmail      || '',
-          customerPhone      || '',
-          shippingAddress    || '',
-          city               || '',
-          state              || '',
-          pincode            || '',
+          linkedUserId,
+          (customerName || '').trim(),
+          cleanEmail,
+          cleanPhone,
+          shippingAddress.trim(),
+          city.trim(),
+          state ? state.trim() : '',
+          cleanPincode,
           calculatedSubtotal,
           calculatedShipping,
           calculatedTax,
           finalTotalAmount,
-          paymentMethod      || 'RAZORPAY'
+          paymentMethod ? String(paymentMethod).toUpperCase() : 'RAZORPAY'
         ]
       );
-      orderId = result.insertId;
-    } catch (insertErr: any) {
-      // Fallback: Retry without invoice_number if older DB schema
-      logger.warn(`Primary order INSERT failed (${insertErr.message}). Retrying fallback insert.`);
-      try {
-        const [fallbackResult]: any = await pool.query(
-          `INSERT INTO orders
-            (order_number, customer_name, customer_email, customer_phone,
-             shipping_address, city, state, pincode,
-             subtotal, shipping_fee, tax, total_amount, payment_method, payment_status, order_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING')`,
-          [
-            orderNumber,
-            customerName       || '',
-            customerEmail      || '',
-            customerPhone      || '',
-            shippingAddress    || '',
-            city               || '',
-            state              || '',
-            pincode            || '',
-            calculatedSubtotal,
-            calculatedShipping,
-            calculatedTax,
-            finalTotalAmount,
-            paymentMethod      || 'RAZORPAY'
-          ]
+
+      orderId = orderResult.insertId;
+
+      // Insert line items and decrement product stock atomically
+      for (const item of validatedItems) {
+        await connection.query(
+          `INSERT INTO order_items (order_id, product_id, product_name, unit_price, metal_type, quantity, total_price)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, item.productId, item.productName, item.unitPrice, item.metalType, item.quantity, item.totalPrice]
         );
-        orderId = fallbackResult.insertId;
-      } catch (fallbackErr: any) {
-        logger.warn(`Fallback order INSERT also failed: ${fallbackErr.message}`);
-      }
-    }
 
-    // 3. Stock Availability Pre-check & Validation
-    if (items && Array.isArray(items) && items.length > 0) {
-      for (const item of items) {
-        const targetId = item.id || item.product_id || 0;
-        const targetName = item.title || item.name || '';
-        const requestedQty = Number(item.quantity) || 1;
+        await connection.query(
+          `UPDATE products 
+           SET stock_quantity = GREATEST(0, stock_quantity - ?),
+               in_stock = IF((stock_quantity - ?) <= 0, 0, in_stock)
+           WHERE id = ?`,
+          [item.quantity, item.quantity, item.productId]
+        );
 
-        try {
-          const [prods]: any = await pool.query(
-            `SELECT id, name, stock_quantity, in_stock FROM products WHERE id = ? OR name = ? LIMIT 1`,
-            [targetId, targetName]
-          );
-
-          if (prods && prods.length > 0) {
-            const product = prods[0];
-            if (product.in_stock === 0 || product.stock_quantity <= 0) {
-              return res.status(400).json({
-                success: false,
-                message: `Product "${product.name}" is currently out of stock.`
-              });
-            }
-            if (product.stock_quantity < requestedQty) {
-              return res.status(400).json({
-                success: false,
-                message: `Cannot place order: Product "${product.name}" only has ${product.stock_quantity} item(s) left in stock (you requested ${requestedQty}).`
-              });
-            }
-          }
-        } catch (checkErr: any) {
-          logger.warn(`Stock pre-check warning: ${checkErr.message}`);
-        }
-      }
-    }
-
-    if (orderId) {
-      logger.info(`Order created: ${orderNumber} | Tracking: ${trackingCode} (DB ID: ${orderId})`);
-
-      if (items && Array.isArray(items)) {
-        for (const item of items) {
-          const targetId = item.id || item.product_id || 0;
-          const targetName = item.title || item.name || '';
-          const qty = Number(item.quantity) || 1;
-          const unitPrice = Number(item.price) || 0;
-
-          try {
-            await pool.query(
-              `INSERT INTO order_items (order_id, product_id, product_name, unit_price, metal_type, quantity, total_price)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [orderId, targetId || null, targetName, unitPrice, item.metalType || '18K Warm Gold', qty, unitPrice * qty]
-            );
-
-            // Deduct stock quantity and update in_stock flag in products table
-            await pool.query(
-              `UPDATE products 
-               SET stock_quantity = GREATEST(0, stock_quantity - ?),
-                   in_stock = IF((stock_quantity - ?) <= 0, 0, in_stock)
-               WHERE id = ? OR name = ?`,
-              [qty, qty, targetId, targetName]
-            );
-            logger.info(`[STOCK DEDUCT] Reduced stock by -${qty} for product "${targetName}" (Order #${orderNumber})`);
-          } catch (itemErr: any) {
-            logger.warn(`order_items INSERT/stock update failed for order ${orderNumber}: ${itemErr.message}`);
-          }
-        }
+        logger.info(`[STOCK DEDUCT] Reduced stock by -${item.quantity} for product "${item.productName}" (Order #${orderNumber})`);
       }
 
-      // ── Fire-and-forget: Send order confirmation email to admin ──────────────
-      const savedItems = (items || []).map((item: any) => ({
-        product_name: item.title || item.name || 'Product',
-        unit_price:   Number(item.price) || 0,
-        quantity:     Number(item.quantity) || 1,
-        metal_type:   item.metalType || '18K Warm Gold',
-        total_price:  (Number(item.price) || 0) * (Number(item.quantity) || 1)
-      }));
-
-      sendOrderConfirmationEmail({
-        orderNumber,
-        trackingCode: trackingCode || '',
-        customerName:    customerName    || 'Valued Customer',
-        customerEmail:   customerEmail   || '',
-        customerPhone:   customerPhone   || '',
-        shippingAddress: shippingAddress || '',
-        city:            city            || '',
-        state:           state           || '',
-        pincode:         pincode         || '',
-        items:           savedItems,
-        subtotal:        calculatedSubtotal,
-        shippingFee:     calculatedShipping,
-        tax:             calculatedTax,
-        totalAmount:     finalTotalAmount,
-        paymentMethod:   paymentMethod   || 'RAZORPAY',
-        paymentStatus:   'PENDING',
-        orderStatus:     'PENDING',
-        createdAt:       new Date().toISOString()
-      }).catch(err => logger.warn(`[EMAIL] Order email failed silently: ${err.message}`));
-      // ────────────────────────────────────────────────────────────────────────
+      await connection.commit();
+    } catch (txErr: any) {
+      await connection.rollback();
+      logger.error(`Order creation transaction failed and was rolled back: ${txErr.message}`);
+      throw txErr;
+    } finally {
+      connection.release();
     }
+
+    // 5. Fire-and-forget: Send order confirmation email notification
+    sendOrderConfirmationEmail({
+      orderNumber,
+      trackingCode: trackingCode || '',
+      customerName: (customerName || '').trim() || 'Valued Customer',
+      customerEmail: cleanEmail,
+      customerPhone: cleanPhone,
+      shippingAddress: shippingAddress.trim(),
+      city: city.trim(),
+      state: state ? state.trim() : '',
+      pincode: cleanPincode,
+      items: validatedItems.map(it => ({
+        product_name: it.productName,
+        unit_price: it.unitPrice,
+        quantity: it.quantity,
+        metal_type: it.metalType,
+        total_price: it.totalPrice
+      })),
+      subtotal: calculatedSubtotal,
+      shippingFee: calculatedShipping,
+      tax: calculatedTax,
+      totalAmount: finalTotalAmount,
+      paymentMethod: paymentMethod ? String(paymentMethod).toUpperCase() : 'RAZORPAY',
+      paymentStatus: 'PENDING',
+      orderStatus: 'PENDING',
+      createdAt: new Date().toISOString()
+    }).catch(err => logger.warn(`[EMAIL] Order email failed silently: ${err.message}`));
+
+    logger.info(`Order created successfully: ${orderNumber} (DB ID: ${orderId})`);
 
     return res.status(201).json({
       success: true,
       message: 'Order placed successfully.',
       data: {
+        orderId,
         orderNumber,
         invoiceNumber,
         trackingCode,
@@ -418,8 +448,8 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         shippingFee: calculatedShipping,
         tax: calculatedTax,
         totalAmount: finalTotalAmount,
-        customerName,
-        customerEmail,
+        customerName: (customerName || '').trim(),
+        customerEmail: cleanEmail,
         orderStatus: 'PENDING',
         paymentStatus: 'PENDING'
       }

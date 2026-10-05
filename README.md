@@ -278,7 +278,7 @@ All endpoints are prefixed with `/api/v1`.
   "success": true,
   "message": "Sign in successful.",
   "data": {
-    "user": { "id": 1, "name": "Arista Atelier Administrator", "email": "admin@aristatrinkets.com", "role": "SUPER_ADMIN" },
+    "user": { "id": 1, "name": "Arista Trinkets Administrator", "email": "admin@aristatrinkets.com", "role": "SUPER_ADMIN" },
     "token": "<JWT>"
   }
 }

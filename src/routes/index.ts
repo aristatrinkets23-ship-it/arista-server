@@ -33,6 +33,7 @@ import {
   mergeCart
 } from '../controllers/cart.controller';
 import { createEnquiry, getEnquiries } from '../controllers/enquiry.controller';
+import { subscribeNewsletter, getNewsletterSubscribers, newsletterLimiter } from '../controllers/newsletter.controller';
 import { authenticateJwt, optionalAuthenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -139,6 +140,10 @@ router.get('/admin/orders', adminAuthStack, getAdminOrders);
 router.post('/enquiries', createEnquiry);
 router.post('/contact', createEnquiry);
 router.get('/admin/enquiries', adminAuthStack, getEnquiries);
+
+// Newsletter Subscription Routes
+router.post('/newsletter', newsletterLimiter, subscribeNewsletter);
+router.get('/admin/newsletter', adminAuthStack, getNewsletterSubscribers);
 
 export default router;
 

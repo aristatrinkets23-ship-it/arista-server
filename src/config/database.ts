@@ -306,7 +306,20 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       );
     }
 
-    // 13. Alter columns in existing database to support base64 LONGTEXT images if needed
+    // 16. Create newsletter_subscribers table if not exists
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`newsletter_subscribers\` (
+        \`id\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`email\` VARCHAR(150) NOT NULL UNIQUE,
+        \`is_active\` TINYINT(1) NOT NULL DEFAULT 1,
+        \`subscribed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`unsubscribed_at\` TIMESTAMP NULL DEFAULT NULL,
+        INDEX \`idx_newsletter_email\` (\`email\`),
+        INDEX \`idx_newsletter_active\` (\`is_active\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 17. Alter columns in existing database to support base64 LONGTEXT images if needed
     try {
       await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
     } catch (e) { }

@@ -34,6 +34,7 @@ export const getAdminMetrics = async (req: Request, res: Response, next: NextFun
  * Admin: Create Product
  */
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
+  let connection: any = null;
   try {
     const { name, category, categoryId, price, compareAtPrice, badge, metalType, gemstone, inStock, stockQuantity, description, materials, careGuide, shippingInfo, image, specifications, images } = req.body;
 
@@ -45,12 +46,30 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, message: 'Product Price (₹ INR) cannot be greater than Compare-At Price (₹ INR).' });
     }
 
-    const slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    let slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    if (!slug) {
+      slug = `product-${Date.now()}`;
+    }
+
+    connection = await pool.getConnection();
+
+    // Check slug collision and ensure uniqueness
+    let candidateSlug = slug;
+    let suffix = 1;
+    while (true) {
+      const [existing]: any = await connection.query(`SELECT id FROM products WHERE slug = ?`, [candidateSlug]);
+      if (!existing || existing.length === 0) {
+        slug = candidateSlug;
+        break;
+      }
+      suffix++;
+      candidateSlug = `${slug}-${suffix}`;
+    }
 
     let finalCategoryId = categoryId || null;
     if (!finalCategoryId && category) {
       try {
-        const [cats]: any = await pool.query(
+        const [cats]: any = await connection.query(
           `SELECT id FROM categories WHERE LOWER(name) = LOWER(?) OR LOWER(slug) = LOWER(?)`,
           [category, category]
         );
@@ -60,43 +79,75 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       } catch (err) {}
     }
 
-      const parsedStockNew = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
-        ? Math.max(0, Number(stockQuantity))
-        : 10;
-      const calculatedInStockNew = parsedStockNew > 0 ? (inStock !== false ? 1 : 0) : 0;
-      const isActiveValNew = (req.body.isActive !== undefined) ? (req.body.isActive ? 1 : 0) : ((req.body.available !== undefined) ? (req.body.available ? 1 : 0) : 1);
+    const parsedStockNew = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
+      ? Math.max(0, Number(stockQuantity))
+      : 10;
+    const calculatedInStockNew = parsedStockNew > 0 ? (inStock !== false ? 1 : 0) : 0;
+    const isActiveValNew = (req.body.isActive !== undefined) ? (req.body.isActive ? 1 : 0) : ((req.body.available !== undefined) ? (req.body.available ? 1 : 0) : 1);
 
-      const [result]: any = await pool.query(
-        `INSERT INTO products (name, slug, category_id, price, compare_at_price, badge, metal_type, gemstone, in_stock, stock_quantity, is_active, description, materials, care_guide, shipping_info, image)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [name, slug, finalCategoryId, price, compareAtPrice || null, badge || null, metalType || '18K Warm Gold', gemstone || null, calculatedInStockNew, parsedStockNew, isActiveValNew, description || '', typeof materials === 'string' ? materials : JSON.stringify(materials || []), careGuide || '', shippingInfo || '', image]
-      );
+    await connection.beginTransaction();
 
-      const productId = result.insertId;
+    const [result]: any = await connection.query(
+      `INSERT INTO products (name, slug, category_id, price, compare_at_price, badge, metal_type, gemstone, in_stock, stock_quantity, is_active, description, materials, care_guide, shipping_info, image)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, slug, finalCategoryId, price, compareAtPrice || null, badge || null, metalType || '18K Warm Gold', gemstone || null, calculatedInStockNew, parsedStockNew, isActiveValNew, description || '', typeof materials === 'string' ? materials : JSON.stringify(materials || []), careGuide || '', shippingInfo || '', image]
+    );
 
-      if (specifications && Array.isArray(specifications)) {
-        for (const spec of specifications) {
-          await pool.query(
+    const productId = result.insertId;
+
+    if (specifications && Array.isArray(specifications)) {
+      for (const spec of specifications) {
+        if (spec && spec.label && String(spec.label).trim() !== '' && spec.value && String(spec.value).trim() !== '') {
+          await connection.query(
             `INSERT INTO product_specifications (product_id, spec_label, spec_value) VALUES (?, ?, ?)`,
-            [productId, spec.label, spec.value]
+            [productId, String(spec.label).trim(), String(spec.value).trim()]
           );
         }
       }
+    }
 
-      if (images && Array.isArray(images)) {
-        for (let i = 0; i < images.length; i++) {
-          await pool.query(
-            `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
-            [productId, images[i], i]
-          );
+    const imageListToInsert: string[] = [];
+    if (images && Array.isArray(images) && images.length > 0) {
+      for (const imgUrl of images) {
+        if (imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '') {
+          imageListToInsert.push(imgUrl.trim());
         }
       }
+    }
+    if (image && !imageListToInsert.includes(image)) {
+      imageListToInsert.unshift(image);
+    }
 
-    logger.info(`Admin created new product: ${name} (ID: ${productId})`);
+    for (let i = 0; i < imageListToInsert.length; i++) {
+      await connection.query(
+        `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
+        [productId, imageListToInsert[i], i]
+      );
+    }
+
+    if (finalCategoryId) {
+      await connection.query(
+        `UPDATE categories SET item_count = (SELECT COUNT(*) FROM products WHERE category_id = ? AND (is_active = 1 OR is_active IS NULL)) WHERE id = ?`,
+        [finalCategoryId, finalCategoryId]
+      );
+    }
+
+    await connection.commit();
+
+    logger.info(`Admin created new product: ${name} (ID: ${productId}, Slug: ${slug})`);
     return res.status(201).json({ success: true, message: 'Product created successfully.', data: { id: productId, name, slug } });
   } catch (err: any) {
-    logger.error(`MySQL insert failed for product creation: ${err.message}`);
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rbErr) {}
+    }
+    logger.error(`MySQL transaction failed for product creation: ${err.message}`);
     next(err);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 };
 
