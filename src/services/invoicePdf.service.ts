@@ -144,7 +144,7 @@ export const generateInvoicePdf = (
          .fillColor(cMuted)
          .text('Demi-Fine Jewellery & Artisanal Keepsakes', margin, curY)
          .text(settings.companyAddress || 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003', margin, curY + 12, { width: leftW })
-         .text(`Phone: ${settings.companyPhone || '+91 63539 98212'}  |  Email: ${settings.companyEmail || 'concierge@aristatrinkets.com'}`, margin, curY + 34, { width: leftW });
+         .text(`Phone: ${settings.companyPhone || '+91 90161 34899'}  |  Email: ${settings.companyEmail || 'concierge@aristatrinkets.com'}`, margin, curY + 34, { width: leftW });
 
       doc.font('Helvetica-Bold')
          .fontSize(8.5)

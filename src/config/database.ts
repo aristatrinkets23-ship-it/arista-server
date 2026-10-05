@@ -294,7 +294,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ['free_delivery_threshold', '600.00'],
       ['company_name', 'Arista Trinkets Atelier'],
       ['company_address', 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003'],
-      ['company_phone', '+91 98765 43210'],
+      ['company_phone', '+91 90161 34899'],
       ['company_email', 'concierge@aristatrinkets.com'],
       ['invoice_prefix', 'INV-']
     ];

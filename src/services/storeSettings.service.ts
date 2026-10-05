@@ -68,7 +68,7 @@ export const getStoreSettings = async (forceRefresh = false): Promise<AllStoreSe
       freeDeliveryThreshold,
       companyName: raw['company_name'] || 'Arista Trinkets Atelier',
       companyAddress: raw['company_address'] || 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003',
-      companyPhone: raw['company_phone'] || '+91 98765 43210',
+      companyPhone: raw['company_phone'] || '+91 90161 34899',
       companyEmail: raw['company_email'] || 'concierge@aristatrinkets.com',
       invoicePrefix: raw['invoice_prefix'] || 'INV-',
       ...raw
@@ -85,7 +85,7 @@ export const getStoreSettings = async (forceRefresh = false): Promise<AllStoreSe
       freeDeliveryThreshold: 600.0,
       companyName: 'Arista Trinkets Atelier',
       companyAddress: 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003',
-      companyPhone: '+91 98765 43210',
+      companyPhone: '+91 90161 34899',
       companyEmail: 'concierge@aristatrinkets.com',
       invoicePrefix: 'INV-'
     };
