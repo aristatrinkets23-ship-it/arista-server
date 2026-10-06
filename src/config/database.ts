@@ -353,12 +353,19 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     try { await connection.query(`ALTER TABLE \`wishlist_items\` ADD COLUMN \`session_id\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`wishlist_items\` ADD COLUMN \`product_data\` JSON DEFAULT NULL;`); } catch (e) { }
 
-    // Orders table migrations
+    // Orders table migrations - Safe & independent, no cascading failures
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(50) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`invoice_number\` VARCHAR(50) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`courier_name\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancellation_reason\` VARCHAR(255) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_by\` VARCHAR(50) DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` MODIFY COLUMN \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING';`); } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`invoice_number\` VARCHAR(50) UNIQUE DEFAULT NULL AFTER \`order_number\`;`);
-      await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`);
-    } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`); } catch (e) { }
 
     // Backfill invoice_number for past orders if null
     try {
@@ -376,17 +383,6 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         }
       }
     } catch (e) { }
-
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL AFTER \`invoice_number\`;`);
-      await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`);
-    } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`order_status\`;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`processing_at\`;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`shipped_at\`;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`delivered_at\`;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancellation_reason\` VARCHAR(255) DEFAULT NULL AFTER \`cancelled_at\`;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_by\` VARCHAR(50) DEFAULT NULL AFTER \`cancellation_reason\`;`); } catch (e) { }
 
     // User Addresses migrations
     try { await connection.query(`ALTER TABLE \`user_addresses\` ADD COLUMN \`is_default\` BOOLEAN NOT NULL DEFAULT FALSE;`); } catch (e) { }

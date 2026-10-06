@@ -954,9 +954,8 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
     const pageLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
     const pageOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
-    // Main orders query
-    const [orders]: any = await pool.query(
-      `SELECT
+    // Main orders query with automatic self-healing fallback for missing columns
+    const ordersSql = `SELECT
          o.id,
          o.order_number,
          o.tracking_code,
@@ -987,9 +986,29 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
        FROM orders o
        ${whereClause}
        ORDER BY o.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, pageLimit, pageOffset]
-    );
+       LIMIT ? OFFSET ?`;
+
+    let orders: any;
+    try {
+      [orders] = await pool.query(ordersSql, [...params, pageLimit, pageOffset]);
+    } catch (queryErr: any) {
+      if (queryErr.code === 'ER_BAD_FIELD_ERROR' || (queryErr.message && queryErr.message.includes('Unknown column'))) {
+        logger.warn(`Auto-healing missing columns in orders table: ${queryErr.message}`);
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(50) DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`invoice_number\` VARCHAR(50) DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`courier_name\` VARCHAR(100) DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancellation_reason\` VARCHAR(255) DEFAULT NULL;`); } catch (e) {}
+        try { await pool.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_by\` VARCHAR(50) DEFAULT NULL;`); } catch (e) {}
+        // Retry query with newly migrated columns
+        [orders] = await pool.query(ordersSql, [...params, pageLimit, pageOffset]);
+      } else {
+        throw queryErr;
+      }
+    }
 
     // Count query for pagination metadata
     const [countResult]: any = await pool.query(

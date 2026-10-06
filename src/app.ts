@@ -5,8 +5,25 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import routes from './routes';
 import { errorHandler } from './middlewares/error.middleware';
+import { checkDatabaseConnection } from './config/database';
 
 const app = express();
+
+let dbInitPromise: Promise<boolean> | null = null;
+app.use(async (req, res, next) => {
+  if (!dbInitPromise) {
+    dbInitPromise = checkDatabaseConnection().catch((err) => {
+      console.warn('DB lazy init warning:', err.message);
+      return false;
+    });
+  }
+  try {
+    await dbInitPromise;
+  } catch (err) {
+    // continue
+  }
+  next();
+});
 
 // 1. Universal Bulletproof CORS & OPTIONS Preflight Handler
 app.use((req, res, next) => {
