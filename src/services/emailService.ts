@@ -64,10 +64,10 @@ export interface EnquiryEmailData {
  * Sends a notification email to the admin when a new customer enquiry is submitted.
  */
 export const sendEnquiryNotification = async (enquiry: EnquiryEmailData): Promise<boolean> => {
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL || '';
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.ADMIN_NOTIFICATION_EMAIL || '';
 
   if (!adminEmail) {
-    logger.warn('[EMAIL] ADMIN_NOTIFICATION_EMAIL is not configured. Skipping enquiry email.');
+    logger.warn('[EMAIL] ADMIN_EMAIL is not configured. Skipping enquiry email.');
     return false;
   }
 
@@ -167,10 +167,10 @@ export interface OrderEmailData {
  * Includes: order details, tracking code, shipping address, itemised table, and pricing summary.
  */
 export const sendOrderConfirmationEmail = async (order: OrderEmailData): Promise<boolean> => {
-  const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL || '';
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.ADMIN_NOTIFICATION_EMAIL || '';
 
   if (!adminEmail) {
-    logger.warn('[EMAIL] ADMIN_NOTIFICATION_EMAIL is not configured. Skipping order confirmation email.');
+    logger.warn('[EMAIL] ADMIN_EMAIL is not configured. Skipping order confirmation email.');
     return false;
   }
 
@@ -290,6 +290,7 @@ export const sendOrderConfirmationEmail = async (order: OrderEmailData): Promise
     const info = await transporter.sendMail({
       from: senderAddress,
       to: adminEmail,
+      replyTo: order.customerEmail,
       subject: `🛍️ New Order ${order.orderNumber} — ₹${Number(order.totalAmount).toLocaleString('en-IN')} | ${order.customerName}`,
       html: emailHtml,
       text: [
@@ -315,6 +316,162 @@ export const sendOrderConfirmationEmail = async (order: OrderEmailData): Promise
     return true;
   } catch (error: any) {
     logger.error(`[EMAIL] sendOrderConfirmationEmail error: ${error.message}`);
+    return false;
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER CANCELLATION EMAIL
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface OrderCancelledEmailData {
+  orderNumber: string;
+  trackingCode?: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string;
+  shippingAddress?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  totalAmount: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  items?: OrderEmailItem[];
+  cancelledAt?: string;
+  reason?: string;
+}
+
+/**
+ * Sends an order cancellation notification email to ADMIN_EMAIL when an order is cancelled.
+ */
+export const sendOrderCancelledEmail = async (order: OrderCancelledEmailData): Promise<boolean> => {
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.ADMIN_NOTIFICATION_EMAIL || '';
+
+  if (!adminEmail) {
+    logger.warn('[EMAIL] ADMIN_EMAIL is not configured. Skipping order cancellation email.');
+    return false;
+  }
+
+  try {
+    const { transporter, senderAddress } = await createTransporter();
+
+    const items = order.items || [];
+    const itemRows = items.length > 0 ? items.map(item => `
+      <tr style="border-bottom:1px solid #eee;">
+        <td style="padding:10px 8px;color:#1a120b;font-size:14px;">${escapeHtml(item.product_name)}</td>
+        <td style="padding:10px 8px;color:#666;font-size:13px;text-align:center;">${escapeHtml(item.metal_type || '—')}</td>
+        <td style="padding:10px 8px;text-align:center;color:#1a120b;font-size:14px;">${item.quantity}</td>
+        <td style="padding:10px 8px;text-align:right;color:#1a120b;font-size:14px;">₹${Number(item.unit_price || 0).toLocaleString('en-IN')}</td>
+        <td style="padding:10px 8px;text-align:right;color:#1a120b;font-weight:600;font-size:14px;">₹${Number(item.total_price || 0).toLocaleString('en-IN')}</td>
+      </tr>
+    `).join('') : `<tr><td colspan="5" style="padding:12px;text-align:center;color:#777;">No item details available</td></tr>`;
+
+    const cancelledDate = order.cancelledAt
+      ? new Date(order.cancelledAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+      : new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+    const emailHtml = `
+      <div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;max-width:680px;margin:0 auto;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;background:#fff;">
+
+        <!-- Header -->
+        <div style="background:#1a120b;padding:28px 24px;text-align:center;">
+          <h2 style="margin:0;font-size:26px;font-weight:700;color:#d4af37;letter-spacing:2px;text-transform:uppercase;">ARISTA TRINKETS</h2>
+          <p style="margin:8px 0 0;font-size:13px;color:#ef4444;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;">Order Cancelled Notification</p>
+        </div>
+
+        <!-- Order Banner -->
+        <div style="background:#fefdf9;padding:20px 24px;border-bottom:1px solid #e8e0d4;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <p style="margin:0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px;">Order Number</p>
+            <h3 style="margin:4px 0 0;font-size:22px;font-weight:700;color:#ef4444;letter-spacing:1px;">${escapeHtml(order.orderNumber)}</h3>
+          </div>
+          <div style="text-align:right;">
+            <p style="margin:0;font-size:13px;color:#888;text-transform:uppercase;letter-spacing:1px;">Tracking Code</p>
+            <h3 style="margin:4px 0 0;font-size:16px;font-weight:700;color:#8b6b3e;font-family:monospace;">${escapeHtml(order.trackingCode || 'N/A')}</h3>
+          </div>
+          <div style="text-align:right;">
+            <p style="margin:0;font-size:13px;color:#888;">Cancelled At</p>
+            <p style="margin:4px 0 0;font-size:13px;color:#1a120b;font-weight:500;">${cancelledDate}</p>
+          </div>
+        </div>
+
+        <div style="padding:24px;">
+
+          <!-- Status Badges -->
+          <div style="display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;">
+            <span style="background:#ef4444;color:#fff;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Status: CANCELLED</span>
+            <span style="background:#e8e0d4;color:#1a120b;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Payment: ${escapeHtml(order.paymentStatus || 'PENDING')}</span>
+            <span style="background:#e8e0d4;color:#1a120b;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Method: ${escapeHtml(order.paymentMethod || 'COD')}</span>
+          </div>
+
+          <!-- Customer & Shipping -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+            <div style="background:#faf8f5;padding:16px;border-radius:8px;border:1px solid #e8e0d4;">
+              <h4 style="margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#888;">Customer Details</h4>
+              <p style="margin:0 0 6px;font-size:14px;font-weight:600;color:#1a120b;">${escapeHtml(order.customerName)}</p>
+              <p style="margin:0 0 6px;font-size:13px;color:#555;"><a href="mailto:${escapeHtml(order.customerEmail)}" style="color:#8b6b3e;">${escapeHtml(order.customerEmail)}</a></p>
+              <p style="margin:0;font-size:13px;color:#555;">📞 ${escapeHtml(order.customerPhone || 'N/A')}</p>
+            </div>
+            <div style="background:#faf8f5;padding:16px;border-radius:8px;border:1px solid #e8e0d4;">
+              <h4 style="margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#888;">Shipping Address</h4>
+              <p style="margin:0;font-size:13px;color:#1a120b;line-height:1.6;">
+                ${escapeHtml(order.shippingAddress || 'N/A')}<br>
+                ${order.city ? escapeHtml(order.city) + ', ' : ''}${order.state ? escapeHtml(order.state) : ''}<br>
+                Pincode: ${escapeHtml(order.pincode || 'N/A')}
+              </p>
+            </div>
+          </div>
+
+          <!-- Cancelled Items Table -->
+          <h4 style="margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#888;border-bottom:2px solid #ef4444;padding-bottom:8px;">Cancelled Items (Stock Restored)</h4>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
+            <thead>
+              <tr style="background:#1a120b;color:#d4af37;">
+                <th style="padding:10px 8px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Product</th>
+                <th style="padding:10px 8px;text-align:center;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Metal</th>
+                <th style="padding:10px 8px;text-align:center;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Qty</th>
+                <th style="padding:10px 8px;text-align:right;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Unit Price</th>
+                <th style="padding:10px 8px;text-align:right;font-size:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Total</th>
+              </tr>
+            </thead>
+            <tbody>${itemRows}</tbody>
+          </table>
+
+          <!-- Total Amount -->
+          <div style="background:#faf8f5;padding:16px 20px;border-radius:8px;border:1px solid #e8e0d4;">
+            <table style="width:100%;font-size:14px;">
+              <tr>
+                <td style="padding:4px 0;font-weight:700;font-size:15px;color:#1a120b;">Total Order Value Cancelled</td>
+                <td style="padding:4px 0;text-align:right;font-weight:700;font-size:18px;color:#ef4444;">₹${Number(order.totalAmount).toLocaleString('en-IN')}</td>
+              </tr>
+            </table>
+          </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div style="background:#f3efe9;padding:16px 20px;text-align:center;font-size:12px;color:#777;">
+          <p style="margin:0;">This cancellation notification was sent to ${escapeHtml(adminEmail)} for Order #${escapeHtml(order.orderNumber)}</p>
+        </div>
+      </div>
+    `;
+
+    const info = await transporter.sendMail({
+      from: senderAddress,
+      to: adminEmail,
+      replyTo: order.customerEmail,
+      subject: `🚫 Order Cancelled ${order.orderNumber} — ₹${Number(order.totalAmount).toLocaleString('en-IN')} | ${order.customerName}`,
+      html: emailHtml,
+      text: `ORDER CANCELLED — Order #${order.orderNumber}\nCustomer: ${order.customerName} (${order.customerEmail})\nTotal: ₹${Number(order.totalAmount).toLocaleString('en-IN')}\nCancelled At: ${cancelledDate}`
+    });
+
+    const previewUrl = nodemailer.getTestMessageUrl(info);
+    if (previewUrl) logger.info(`[EMAIL] Cancelled Order email preview: ${previewUrl}`);
+    logger.info(`[EMAIL] Order cancellation email sent to ${adminEmail} for order ${order.orderNumber}`);
+    return true;
+  } catch (error: any) {
+    logger.error(`[EMAIL] sendOrderCancelledEmail error: ${error.message}`);
     return false;
   }
 };

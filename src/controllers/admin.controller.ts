@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/database';
 import { logger } from '../utils/logger';
+import { sendOrderCancelledEmail } from '../services/emailService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'AristaTrinketsJwtSecretKey2026';
 
@@ -76,7 +77,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
         if (cats && cats.length > 0) {
           finalCategoryId = cats[0].id;
         }
-      } catch (err) {}
+      } catch (err) { }
     }
 
     const parsedStockNew = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
@@ -140,7 +141,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
     if (connection) {
       try {
         await connection.rollback();
-      } catch (rbErr) {}
+      } catch (rbErr) { }
     }
     logger.error(`MySQL transaction failed for product creation: ${err.message}`);
     next(err);
@@ -459,7 +460,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
 
     // 1. Fetch current order status from DB before updating
     const [existingOrders]: any = await pool.query(
-      `SELECT id, order_number, order_status, payment_method, payment_status FROM orders WHERE id = ? OR order_number = ? LIMIT 1`,
+      `SELECT id, order_number, tracking_code, customer_name, customer_email, customer_phone, shipping_address, city, state, pincode, total_amount, payment_method, payment_status, order_status FROM orders WHERE id = ? OR order_number = ? LIMIT 1`,
       [id, id]
     );
 
@@ -472,11 +473,11 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     const paymentMethod = (existingOrders[0].payment_method || '').toUpperCase();
     const dbOrderId = existingOrders[0].id;
 
-    // 2. Handle Stock Restoration on Order Cancellation
+    // 2. Handle Stock Restoration on Order Cancellation & Send Cancellation Email
     if (newOrderStatus === 'CANCELLED' && currentOrderStatus !== 'CANCELLED') {
       try {
         const [orderItems]: any = await pool.query(
-          `SELECT product_id, product_name, quantity FROM order_items WHERE order_id = ?`,
+          `SELECT product_id, product_name, quantity, unit_price, metal_type, total_price FROM order_items WHERE order_id = ?`,
           [dbOrderId]
         );
 
@@ -495,6 +496,31 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
             logger.info(`[STOCK RESTORE] Restored +${qty} stock for item "${prodName}" on cancellation of Order #${id}`);
           }
         }
+
+        // Send order cancellation email to ADMIN_EMAIL
+        sendOrderCancelledEmail({
+          orderNumber: existingOrders[0].order_number || String(id),
+          trackingCode: existingOrders[0].tracking_code || '',
+          customerName: existingOrders[0].customer_name || '',
+          customerEmail: existingOrders[0].customer_email || '',
+          customerPhone: existingOrders[0].customer_phone || '',
+          shippingAddress: existingOrders[0].shipping_address || '',
+          city: existingOrders[0].city || '',
+          state: existingOrders[0].state || '',
+          pincode: existingOrders[0].pincode || '',
+          totalAmount: Number(existingOrders[0].total_amount || 0),
+          paymentMethod: existingOrders[0].payment_method,
+          paymentStatus: existingOrders[0].payment_status,
+          items: (orderItems || []).map((it: any) => ({
+            product_name: it.product_name,
+            unit_price: Number(it.unit_price || 0),
+            quantity: Number(it.quantity || 1),
+            metal_type: it.metal_type || '',
+            total_price: Number(it.total_price || 0)
+          })),
+          cancelledAt: new Date().toISOString()
+        }).catch(err => logger.warn(`[EMAIL] Cancellation email notification failed: ${err.message}`));
+
       } catch (stockErr: any) {
         logger.warn(`Stock restoration error on order cancellation: ${stockErr.message}`);
       }
@@ -925,7 +951,7 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const pageLimit  = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
+    const pageLimit = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200);
     const pageOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
     // Main orders query
@@ -1020,9 +1046,9 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
         },
         pagination: {
           total,
-          limit:  pageLimit,
+          limit: pageLimit,
           offset: pageOffset,
-          pages:  Math.ceil(total / pageLimit)
+          pages: Math.ceil(total / pageLimit)
         }
       }
     });
