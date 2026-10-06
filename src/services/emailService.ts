@@ -27,9 +27,10 @@ const createTransporter = async (): Promise<{ transporter: Transporter; senderAd
   let senderAddress = process.env.EMAIL_FROM || user || 'concierge@aristatrinkets.com';
 
   if (user && pass) {
-    const useService = !!(process.env.EMAIL_SERVICE || host === 'smtp.gmail.com' || host === 'gmail');
+    const hasCustomHost = !!(process.env.EMAIL_HOST || process.env.SMTP_HOST);
+    const useService = !hasCustomHost && !!(process.env.EMAIL_SERVICE);
     const transporter = useService
-      ? nodemailer.createTransport({ service: process.env.EMAIL_SERVICE || 'gmail', auth: { user, pass } })
+      ? nodemailer.createTransport({ service: process.env.EMAIL_SERVICE, auth: { user, pass } })
       : nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
     return { transporter, senderAddress };
   }
