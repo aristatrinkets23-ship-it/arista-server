@@ -93,7 +93,7 @@ export const generateInvoicePdf = (
         margin: 36,
         info: {
           Title: `Tax Invoice - ${order.invoice_number || order.order_number}`,
-          Author: settings.companyName || 'Arista Trinkets Atelier',
+          Author: settings.companyName || 'Arista Trinkets',
           Subject: `Tax Invoice for Order ${order.order_number}`
         }
       });
@@ -128,7 +128,7 @@ export const generateInvoicePdf = (
       doc.font('Helvetica-Bold')
          .fontSize(18)
          .fillColor(cMocha)
-         .text((settings.companyName || 'ARISTA TRINKETS ATELIER').toUpperCase(), margin, curY);
+         .text((settings.companyName || 'ARISTA TRINKETS').toUpperCase(), margin, curY);
 
       doc.font('Helvetica-Bold')
          .fontSize(15)
@@ -461,12 +461,12 @@ export const generateInvoicePdf = (
       doc.font('Helvetica-Bold')
          .fontSize(8)
          .fillColor(cMocha)
-         .text(`For ${settings.companyName || 'ARISTA TRINKETS ATELIER'}`, signX + 10, curY + 8, { width: boxW - 20, align: 'right' });
+         .text(`For ${settings.companyName || 'ARISTA TRINKETS'}`, signX + 10, curY + 8, { width: boxW - 20, align: 'right' });
 
       doc.font('Helvetica-Oblique')
          .fontSize(11)
          .fillColor(cLightGold)
-         .text('Arista Atelier Authenticated', signX + 10, curY + (bottomH - 46), { width: boxW - 20, align: 'right' });
+         .text('Arista Trinkets Authenticated', signX + 10, curY + (bottomH - 46), { width: boxW - 20, align: 'right' });
 
       doc.strokeColor(cBorder).lineWidth(0.5).moveTo(signX + boxW - 130, curY + bottomH - 24).lineTo(signX + boxW - 10, curY + bottomH - 24).stroke();
 

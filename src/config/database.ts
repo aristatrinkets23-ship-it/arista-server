@@ -48,7 +48,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
       await connection.query(
         `INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'SUPER_ADMIN')`,
-        ['Arista Atelier Administrator', adminEmail, hashedPassword]
+        ['Arista Trinkets Administrator', adminEmail, hashedPassword]
       );
       logger.info(`Default Admin credentials seeded into MySQL database (${adminEmail}).`);
     }
