@@ -482,7 +482,8 @@ export const trackOrder = async (req: Request, res: Response, next: NextFunction
                 shipping_address, city, state, pincode,
                 subtotal, shipping_fee, tax, total_amount,
                 payment_method, payment_status, order_status,
-                created_at, processing_at, shipped_at, delivered_at, cancelled_at, updated_at
+                created_at, processing_at, shipped_at, delivered_at, cancelled_at,
+                cancellation_reason, cancelled_by, updated_at
          FROM orders WHERE tracking_code = ? LIMIT 1`,
         [trackingCode]
       );
@@ -547,8 +548,10 @@ export const trackOrder = async (req: Request, res: Response, next: NextFunction
           processingAt:   order.processing_at,
           shippedAt:      order.shipped_at,
           deliveredAt:    order.delivered_at,
-          cancelledAt:    order.cancelled_at,
-          lastUpdated:    order.updated_at
+          cancelledAt:        order.cancelled_at,
+          cancellationReason: order.cancellation_reason,
+          cancelledBy:        order.cancelled_by,
+          lastUpdated:        order.updated_at
         }
       });
     } catch (dbErr: any) {
@@ -757,4 +760,176 @@ export const downloadInvoicePdf = async (req: Request, res: Response, next: Next
     next(err);
   }
 };
+
+/**
+ * Customer / Client: Cancel Order
+ * Endpoint: POST /api/v1/orders/:idOrOrderNumber/cancel
+ *
+ * Rules:
+ * 1. Verifies order exists in database.
+ * 2. Verifies ownership (authenticated user matches user_id / email, or matching email provided in request, or admin role).
+ * 3. Validates order status:
+ *    - Cannot cancel if status is 'CANCELLED'.
+ *    - Cannot cancel if status is 'SHIPPED' or 'DELIVERED'.
+ *    - Only allowed if status is 'PENDING' or 'PROCESSING'.
+ * 4. Atomic transaction:
+ *    - Updates order_status to 'CANCELLED', records cancelled_at, cancellation_reason, cancelled_by.
+ *    - Restores inventory stock for all items in the order.
+ * 5. Returns updated order details and confirmation message.
+ */
+export const cancelCustomerOrder = async (req: Request, res: Response, next: NextFunction) => {
+  let connection: any = null;
+  try {
+    const { idOrOrderNumber } = req.params;
+    const { reason, email } = req.body;
+
+    if (!idOrOrderNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order identifier is required.'
+      });
+    }
+
+    // 1. Fetch order from database
+    const [orders]: any = await pool.query(
+      `SELECT id, order_number, user_id, customer_email, customer_name, order_status, payment_method, payment_status, total_amount, created_at
+       FROM orders
+       WHERE id = ? OR order_number = ?
+       LIMIT 1`,
+      [idOrOrderNumber, idOrOrderNumber]
+    );
+
+    if (!orders || orders.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Order #${idOrOrderNumber} not found.`
+      });
+    }
+
+    const order = orders[0];
+
+    // 2. Security & Ownership Validation
+    const user = (req as any).user;
+    const reqEmail = (email || req.query.email || '').trim().toLowerCase();
+
+    if (user) {
+      const isOwner = (order.user_id && order.user_id === (user.id || user.userId)) ||
+                      (order.customer_email && order.customer_email.toLowerCase() === user.email.toLowerCase());
+      const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not authorized to cancel this order.'
+        });
+      }
+    } else {
+      // Unauthenticated request must provide matching email
+      if (!reqEmail || reqEmail !== order.customer_email.toLowerCase()) {
+        return res.status(401).json({
+          success: false,
+          message: 'Valid customer email is required to cancel this order.'
+        });
+      }
+    }
+
+    // 3. Status Transition Validations
+    const currentStatus = (order.order_status || '').toUpperCase();
+
+    if (currentStatus === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: `Order #${order.order_number} is already cancelled.`
+      });
+    }
+
+    if (currentStatus === 'SHIPPED') {
+      return res.status(400).json({
+        success: false,
+        message: `Order #${order.order_number} has already been shipped and cannot be cancelled online. Once delivered, you may request a 30-day return or exchange with our atelier concierge.`
+      });
+    }
+
+    if (currentStatus === 'DELIVERED') {
+      return res.status(400).json({
+        success: false,
+        message: `Order #${order.order_number} has already been delivered. Please contact our concierge for return or exchange assistance.`
+      });
+    }
+
+    // 4. Atomic Database Transaction
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const cancellationReason = (reason || 'Cancelled by customer').trim().substring(0, 255);
+    const cancelledBy = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') ? 'ADMIN' : 'CUSTOMER';
+
+    // Update orders table
+    await connection.query(
+      `UPDATE orders
+       SET order_status = 'CANCELLED',
+           cancelled_at = CURRENT_TIMESTAMP,
+           cancellation_reason = ?,
+           cancelled_by = ?
+       WHERE id = ?`,
+      [cancellationReason, cancelledBy, order.id]
+    );
+
+    // Restore stock for all products in this order
+    const [orderItems]: any = await connection.query(
+      `SELECT product_id, product_name, quantity FROM order_items WHERE order_id = ?`,
+      [order.id]
+    );
+
+    if (orderItems && orderItems.length > 0) {
+      for (const item of orderItems) {
+        const qty = Number(item.quantity) || 1;
+        const prodId = item.product_id;
+        const prodName = item.product_name;
+
+        await connection.query(
+          `UPDATE products
+           SET stock_quantity = stock_quantity + ?,
+               in_stock = 1
+           WHERE id = ? OR name = ?`,
+          [qty, prodId || 0, prodName || '']
+        );
+        logger.info(`[CUSTOMER CANCEL] Restored +${qty} stock for item "${prodName}" on Order #${order.order_number}`);
+      }
+    }
+
+    await connection.commit();
+
+    logger.info(`Order #${order.order_number} (ID: ${order.id}) successfully CANCELLED by ${cancelledBy}. Reason: "${cancellationReason}"`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Order #${order.order_number} has been cancelled successfully.`,
+      data: {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        orderStatus: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+        cancellationReason,
+        cancelledBy
+      }
+    });
+
+  } catch (err: any) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rbErr) {
+        logger.error(`Rollback error on cancelCustomerOrder: ${rbErr}`);
+      }
+    }
+    logger.error(`cancelCustomerOrder error: ${err.message}`);
+    next(err);
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
 

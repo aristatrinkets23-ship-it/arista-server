@@ -10,6 +10,7 @@ export interface PublicStoreSettings {
   companyAddress: string;
   companyPhone: string;
   companyEmail: string;
+  companyTiming: string;
   invoicePrefix: string;
 }
 
@@ -66,10 +67,11 @@ export const getStoreSettings = async (forceRefresh = false): Promise<AllStoreSe
       gstPercentage,
       deliveryCharge,
       freeDeliveryThreshold,
-      companyName: raw['company_name'] || 'Arista Trinkets Atelier',
-      companyAddress: raw['company_address'] || 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003',
-      companyPhone: raw['company_phone'] || '+91 90161 34899',
-      companyEmail: raw['company_email'] || 'concierge@aristatrinkets.com',
+      companyName: raw['company_name'] || 'Arista Trinkets',
+      companyAddress: raw['company_address'] || 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001',
+      companyPhone: raw['company_phone'] || '9016134899',
+      companyEmail: raw['company_email'] || 'info@aristatrinkets.com',
+      companyTiming: raw['company_timing'] || 'Mon – Sat: 10:00 AM – 7:00 PM IST',
       invoicePrefix: raw['invoice_prefix'] || 'INV-',
       ...raw
     };
@@ -83,10 +85,11 @@ export const getStoreSettings = async (forceRefresh = false): Promise<AllStoreSe
       gstPercentage: 3.0,
       deliveryCharge: 50.0,
       freeDeliveryThreshold: 600.0,
-      companyName: 'Arista Trinkets Atelier',
-      companyAddress: 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003',
-      companyPhone: '+91 90161 34899',
-      companyEmail: 'concierge@aristatrinkets.com',
+      companyName: 'Arista Trinkets',
+      companyAddress: 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001',
+      companyPhone: '9016134899',
+      companyEmail: 'info@aristatrinkets.com',
+      companyTiming: 'Mon – Sat: 10:00 AM – 7:00 PM IST',
       invoicePrefix: 'INV-'
     };
   }

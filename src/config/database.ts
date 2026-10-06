@@ -202,6 +202,8 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`shipped_at\` TIMESTAMP NULL DEFAULT NULL,
         \`delivered_at\` TIMESTAMP NULL DEFAULT NULL,
         \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL,
+        \`cancellation_reason\` VARCHAR(255) DEFAULT NULL,
+        \`cancelled_by\` VARCHAR(50) DEFAULT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX \`idx_order_number\` (\`order_number\`),
@@ -292,10 +294,11 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ['gst_percentage', '3.0'],
       ['delivery_charge', '50.00'],
       ['free_delivery_threshold', '600.00'],
-      ['company_name', 'Arista Trinkets Atelier'],
-      ['company_address', 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003'],
-      ['company_phone', '+91 90161 34899'],
-      ['company_email', 'concierge@aristatrinkets.com'],
+      ['company_name', 'Arista Trinkets'],
+      ['company_address', 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001'],
+      ['company_phone', '9016134899'],
+      ['company_email', 'info@aristatrinkets.com'],
+      ['company_timing', 'Mon – Sat: 10:00 AM – 7:00 PM IST'],
       ['invoice_prefix', 'INV-']
     ];
 

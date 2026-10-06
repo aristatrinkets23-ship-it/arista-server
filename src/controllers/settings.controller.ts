@@ -22,6 +22,7 @@ export const getPublicSettingsController = async (req: Request, res: Response, n
       companyAddress: settings.companyAddress,
       companyPhone: settings.companyPhone,
       companyEmail: settings.companyEmail,
+      companyTiming: settings.companyTiming,
       invoicePrefix: settings.invoicePrefix
     };
 

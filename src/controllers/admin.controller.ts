@@ -537,7 +537,8 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     } else if (newOrderStatus === 'DELIVERED') {
       dateColumnUpdate = `, delivered_at = COALESCE(delivered_at, CURRENT_TIMESTAMP)`;
     } else if (newOrderStatus === 'CANCELLED') {
-      dateColumnUpdate = `, cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP)`;
+      const adminReason = (req.body.cancellationReason || req.body.reason || 'Cancelled by Atelier Administrator').trim();
+      dateColumnUpdate = `, cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP), cancelled_by = COALESCE(cancelled_by, 'ADMIN'), cancellation_reason = COALESCE(cancellation_reason, ${pool.escape(adminReason)})`;
     }
 
     let query = `UPDATE orders SET order_status = ?${dateColumnUpdate}`;
@@ -949,6 +950,8 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
          o.order_status,
          o.razorpay_order_id,
          o.razorpay_payment_id,
+         o.cancellation_reason,
+         o.cancelled_by,
          DATE_FORMAT(o.created_at, '%d %b %Y %H:%i') AS ordered_at,
          DATE_FORMAT(o.processing_at, '%d %b %Y %H:%i') AS processing_at,
          DATE_FORMAT(o.shipped_at, '%d %b %Y %H:%i') AS shipped_at,

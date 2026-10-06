@@ -143,15 +143,15 @@ export const generateInvoicePdf = (
          .fontSize(8.5)
          .fillColor(cMuted)
          .text('Demi-Fine Jewellery & Artisanal Keepsakes', margin, curY)
-         .text(settings.companyAddress || 'Atelier Suite 402, Heritage Diamond District, Surat, Gujarat 395003', margin, curY + 12, { width: leftW })
-         .text(`Phone: ${settings.companyPhone || '+91 90161 34899'}  |  Email: ${settings.companyEmail || 'concierge@aristatrinkets.com'}`, margin, curY + 34, { width: leftW });
+         .text(settings.companyAddress || '', margin, curY + 12, { width: leftW })
+         .text(`Phone: ${settings.companyPhone || ''}  |  Email: ${settings.companyEmail || ''}`, margin, curY + 34, { width: leftW });
 
       doc.font('Helvetica-Bold')
          .fontSize(8.5)
          .fillColor(cMocha)
          .text('GSTIN: ', margin, curY + 48, { continued: true })
          .fillColor(cGold)
-         .text(settings.gstNumber || '24AAACA1234A1Z4');
+         .text(settings.gstNumber || '');
 
       // Right Column: Invoice Meta Details (Fixed two-column key-value grid - ZERO OVERLAP)
       const rightX = margin + 295;

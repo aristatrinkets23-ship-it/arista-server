@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getProducts, getProductBySlug, getCategories } from '../controllers/product.controller';
 import { registerUser, loginUser, getCurrentUser, forgotPassword, verifyOtp, resetPasswordWithOtp, updateUserProfile, changeUserPassword } from '../controllers/auth.controller';
-import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder, getMyOrders, downloadInvoicePdf } from '../controllers/order.controller';
+import { createOrder, createPaymentOrder, verifyPayment, getOrderByNumber, trackOrder, getMyOrders, downloadInvoicePdf, cancelCustomerOrder } from '../controllers/order.controller';
 import { getPublicSettingsController, getAdminSettingsController, updateAdminSettingsController } from '../controllers/settings.controller';
 import { getUserAddresses, addAddress, updateAddress, deleteAddress, setDefaultAddress } from '../controllers/address.controller';
 import {
@@ -100,6 +100,8 @@ router.get('/orders/my-orders', optionalAuthenticateJwt, getMyOrders);
 router.get('/orders/track/:trackingCode', trackOrder);     // Track by TRK- code
 router.get('/orders/:orderNumber', getOrderByNumber);      // Lookup by ART- order number
 router.get('/orders/:orderNumber/invoice-pdf', downloadInvoicePdf); // Download Tax Invoice PDF
+router.post('/orders/:idOrOrderNumber/cancel', optionalAuthenticateJwt, cancelCustomerOrder); // Customer Cancel Order
+router.put('/orders/:idOrOrderNumber/cancel', optionalAuthenticateJwt, cancelCustomerOrder);
 
 // Admin Protection Middleware (Applied to all /admin routes)
 const adminAuthStack = [authenticateJwt, requireRole(['ADMIN', 'SUPER_ADMIN'])];
