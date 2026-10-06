@@ -6,15 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.1.0] — 2026-10-06
 
-### Planned
-- Refresh token endpoint (`POST /auth/refresh`)
-- Order cancellation endpoint
-- Customer order history endpoint (`GET /orders?userId=...`)
-- Product review / rating system
-- Inventory low-stock alert email notifications
-- Pagination metadata in product list response
+### Added
+- **Order Cancellation Endpoint**: `POST /api/v1/orders/:idOrOrderNumber/cancel` for self-service customer order cancellation with reason logging and automatic MySQL inventory restoration for `PENDING` and `PROCESSING` orders.
+- **Newsletter Subscription Persistence**: `newsletter_subscribers` MySQL table and `POST /api/v1/newsletter` API with lowercased email normalization, duplicate handling, reactivation support, and dedicated rate limiting (`newsletterLimiter`).
+- **Dynamic Store Settings API**: Public `GET /api/v1/settings` and Admin `PUT /api/v1/admin/settings` endpoints for managing GST percentage, delivery fees, free delivery threshold, company address, support phone, concierge email, and atelier operating hours.
+- **Atomic Stock Checks**: Pre-check stock validation before order insertion to prevent orphaned order records.
+- **Email Service Enhancements**: Admin notification templates for new enquiries, order placements, and customer password resets.
 
 ---
 
