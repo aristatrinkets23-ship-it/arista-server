@@ -16,7 +16,7 @@ export function getDefaultPlaceholder(nameOrCategory?: string): string {
  */
 export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { category, sort, search } = req.query;
+    const { category, sort, search, includeInactive } = req.query;
 
     let query = `
       SELECT p.*, c.name as category_name, c.slug as category_slug
@@ -25,6 +25,10 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       WHERE 1=1
     `;
     const queryParams: any[] = [];
+
+    if (includeInactive !== 'true') {
+      query += ` AND (p.is_active = 1 OR p.is_active IS NULL)`;
+    }
 
     if (category && category !== 'all') {
       const cleanCat = String(category).trim().toLowerCase();
@@ -124,6 +128,9 @@ export const getProductBySlug = async (req: Request, res: Response, next: NextFu
 
     if (rows && rows.length > 0) {
       const product = rows[0];
+      if ((product.is_active === 0 || product.is_active === false) && req.query.includeInactive !== 'true') {
+        return res.status(404).json({ success: false, message: 'Product is currently inactive.' });
+      }
       const finalImage = product.image && product.image.trim() !== '' ? product.image : (product.image || '');
       const [specs]: any = await pool.query(`SELECT spec_label as label, spec_value as value FROM product_specifications WHERE product_id = ?`, [product.id]);
       const [imgs]: any = await pool.query(`SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`, [product.id]);
