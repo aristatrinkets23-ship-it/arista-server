@@ -322,20 +322,39 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 17. Alter columns in existing database to support base64 LONGTEXT images if needed
-    try {
-      await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`products\` MODIFY COLUMN \`image\` LONGTEXT NOT NULL;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`);
-    } catch (e) { }
-    // 14. Add tracking_code, invoice_number and status timestamp columns to existing orders table if not exist
+    // 17. Comprehensive Auto-Migration Block for Existing Production Databases
+    // Modifies/Adds any newly introduced columns safely if they do not exist in the database
+
+    // Products table migrations
+    try { await connection.query(`ALTER TABLE \`products\` MODIFY COLUMN \`image\` LONGTEXT NOT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`is_active\` TINYINT(1) NOT NULL DEFAULT 1;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`stock_quantity\` INT NOT NULL DEFAULT 10;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`compare_at_price\` DECIMAL(10, 2) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`badge\` VARCHAR(50) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`metal_type\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`gemstone\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`materials\` TEXT DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`care_guide\` TEXT DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`products\` ADD COLUMN \`shipping_info\` TEXT DEFAULT NULL;`); } catch (e) { }
+
+    // Categories table migrations
+    try { await connection.query(`ALTER TABLE \`categories\` MODIFY COLUMN \`image\` LONGTEXT DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`categories\` ADD COLUMN \`item_count\` INT NOT NULL DEFAULT 0;`); } catch (e) { }
+
+    // Product Images & Specifications migrations
+    try { await connection.query(`ALTER TABLE \`product_images\` MODIFY COLUMN \`image_url\` LONGTEXT NOT NULL;`); } catch (e) { }
+
+    // Cart & Wishlist items migrations
+    try { await connection.query(`ALTER TABLE \`cart_items\` MODIFY COLUMN \`product_id\` INT DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`metal_type\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`slug\` VARCHAR(150) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`cart_items\` ADD COLUMN \`product_data\` JSON DEFAULT NULL;`); } catch (e) { }
+
+    try { await connection.query(`ALTER TABLE \`wishlist_items\` ADD COLUMN \`session_id\` VARCHAR(100) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`wishlist_items\` ADD COLUMN \`product_data\` JSON DEFAULT NULL;`); } catch (e) { }
+
+    // Orders table migrations
+    try { await connection.query(`ALTER TABLE \`orders\` MODIFY COLUMN \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING';`); } catch (e) { }
     try {
       await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`invoice_number\` VARCHAR(50) UNIQUE DEFAULT NULL AFTER \`order_number\`;`);
       await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`);
@@ -357,22 +376,20 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         }
       }
     } catch (e) { }
+
     try {
       await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`tracking_code\` VARCHAR(20) UNIQUE DEFAULT NULL AFTER \`invoice_number\`;`);
       await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`);
     } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`order_status\`;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`processing_at\`;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`shipped_at\`;`);
-    } catch (e) { }
-    try {
-      await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`delivered_at\`;`);
-    } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`processing_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`order_status\`;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`shipped_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`processing_at\`;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`delivered_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`shipped_at\`;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_at\` TIMESTAMP NULL DEFAULT NULL AFTER \`delivered_at\`;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancellation_reason\` VARCHAR(255) DEFAULT NULL AFTER \`cancelled_at\`;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_by\` VARCHAR(50) DEFAULT NULL AFTER \`cancellation_reason\`;`); } catch (e) { }
+
+    // User Addresses migrations
+    try { await connection.query(`ALTER TABLE \`user_addresses\` ADD COLUMN \`is_default\` BOOLEAN NOT NULL DEFAULT FALSE;`); } catch (e) { }
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }
