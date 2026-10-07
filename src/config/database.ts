@@ -197,6 +197,8 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`payment_status\` ENUM('PENDING', 'PAID', 'FAILED', 'REFUNDED') NOT NULL DEFAULT 'PENDING',
         \`razorpay_order_id\` VARCHAR(100) DEFAULT NULL,
         \`razorpay_payment_id\` VARCHAR(100) DEFAULT NULL,
+        \`razorpay_signature\` VARCHAR(255) DEFAULT NULL,
+        \`paid_at\` TIMESTAMP NULL DEFAULT NULL,
         \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
         \`processing_at\` TIMESTAMP NULL DEFAULT NULL,
         \`shipped_at\` TIMESTAMP NULL DEFAULT NULL,
@@ -364,6 +366,8 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancellation_reason\` VARCHAR(255) DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`cancelled_by\` VARCHAR(50) DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` MODIFY COLUMN \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING';`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`razorpay_signature\` VARCHAR(255) DEFAULT NULL;`); } catch (e) { }
+    try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`paid_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`); } catch (e) { }
 

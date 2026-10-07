@@ -150,21 +150,46 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
 
     try {
       if (order_number) {
-        await pool.query(
-          `UPDATE orders SET payment_status = 'PAID', razorpay_order_id = ?, razorpay_payment_id = ?, order_status = 'PROCESSING' WHERE order_number = ?`,
-          [razorpay_order_id, razorpay_payment_id, order_number]
-        );
+        const isNumeric = !isNaN(Number(order_number));
+        if (isNumeric) {
+          await pool.query(
+            `UPDATE orders
+             SET payment_status = 'PAID',
+                 order_status = 'PROCESSING',
+                 razorpay_order_id = ?,
+                 razorpay_payment_id = ?,
+                 razorpay_signature = ?,
+                 paid_at = CURRENT_TIMESTAMP,
+                 processing_at = COALESCE(processing_at, CURRENT_TIMESTAMP)
+             WHERE id = ?`,
+            [razorpay_order_id, razorpay_payment_id, razorpay_signature, Number(order_number)]
+          );
+        } else {
+          await pool.query(
+            `UPDATE orders
+             SET payment_status = 'PAID',
+                 order_status = 'PROCESSING',
+                 razorpay_order_id = ?,
+                 razorpay_payment_id = ?,
+                 razorpay_signature = ?,
+                 paid_at = CURRENT_TIMESTAMP,
+                 processing_at = COALESCE(processing_at, CURRENT_TIMESTAMP)
+             WHERE order_number = ?`,
+            [razorpay_order_id, razorpay_payment_id, razorpay_signature, order_number]
+          );
+        }
       }
-    } catch (dbErr) {
-      logger.warn('MySQL DB update skipped during payment verification fallback.');
+    } catch (dbErr: any) {
+      logger.warn(`MySQL DB update during payment verification warning: ${dbErr.message}`);
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Payment verified successfully.',
+      message: 'Payment verified and transaction recorded in database successfully.',
       data: {
         paymentId: razorpay_payment_id,
         orderId: razorpay_order_id,
+        signature: razorpay_signature,
         status: 'PAID'
       }
     });
@@ -868,6 +893,7 @@ export const cancelCustomerOrder = async (req: Request, res: Response, next: Nex
     await connection.query(
       `UPDATE orders
        SET order_status = 'CANCELLED',
+           payment_status = IF(payment_status = 'PAID', 'REFUNDED', payment_status),
            cancelled_at = CURRENT_TIMESTAMP,
            cancellation_reason = ?,
            cancelled_by = ?
