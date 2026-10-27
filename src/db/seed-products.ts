@@ -348,16 +348,32 @@ async function seedDatabase() {
   console.log(`💎 SEEDING REAL LUXURY PRODUCTS & CATEGORIES: ${dbName}`);
   console.log(`==================================================\n`);
 
+  const useSsl =
+    process.env.DB_SSL === 'true' ||
+    host.includes('aivencloud.com') ||
+    Boolean(process.env.DATABASE_URL?.includes('aivencloud.com')) ||
+    Boolean(process.env.DATABASE_URL?.includes('ssl-mode=REQUIRED')) ||
+    (process.env.NODE_ENV === 'production' && !['localhost', '127.0.0.1'].includes(host));
+
   let connection: mysql.Connection | null = null;
   try {
-    connection = await mysql.createConnection({
-      host,
-      port,
-      user,
-      password,
-      database: dbName,
-      multipleStatements: true
-    });
+    const connConfig: mysql.ConnectionOptions = process.env.DATABASE_URL
+      ? {
+          uri: process.env.DATABASE_URL,
+          multipleStatements: true,
+          ssl: useSsl ? { rejectUnauthorized: false } : undefined
+        }
+      : {
+          host,
+          port,
+          user,
+          password,
+          database: dbName,
+          multipleStatements: true,
+          ssl: useSsl ? { rejectUnauthorized: false } : undefined
+        };
+
+    connection = await mysql.createConnection(connConfig);
 
     await ensureTablesExist(connection as any);
 

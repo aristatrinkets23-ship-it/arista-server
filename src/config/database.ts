@@ -5,18 +5,40 @@ import { logger } from '../utils/logger';
 
 dotenv.config();
 
-export const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'arista_trinkets_db',
-  waitForConnections: true,
-  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
-});
+const useSsl =
+  process.env.DB_SSL === 'true' ||
+  Boolean(process.env.DB_HOST?.includes('aivencloud.com')) ||
+  Boolean(process.env.DATABASE_URL?.includes('aivencloud.com')) ||
+  Boolean(process.env.DATABASE_URL?.includes('ssl-mode=REQUIRED')) ||
+  (process.env.NODE_ENV === 'production' &&
+    Boolean(process.env.DB_HOST) &&
+    !['localhost', '127.0.0.1'].includes(process.env.DB_HOST || ''));
+
+const poolConfig: mysql.PoolOptions = process.env.DATABASE_URL
+  ? {
+      uri: process.env.DATABASE_URL,
+      waitForConnections: true,
+      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0,
+      ssl: useSsl ? { rejectUnauthorized: false } : undefined
+    }
+  : {
+      host: process.env.DB_HOST || 'localhost',
+      port: Number(process.env.DB_PORT) || 3306,
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'defaultdb',
+      waitForConnections: true,
+      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0,
+      ssl: useSsl ? { rejectUnauthorized: false } : undefined
+    };
+
+export const pool = mysql.createPool(poolConfig);
 
 /**
  * Automatically creates tables if not exists and seeds default admin credentials
