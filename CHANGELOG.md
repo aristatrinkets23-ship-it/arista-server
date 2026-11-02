@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-11-03
+
+### Added
+- **Complete Demo Seed SQL**: Added `src/db/complete_demo_seed.sql` containing full schema and production-grade seed data for all 16 tables, 4 categories, 10 luxury jewellery products with multi-gallery images, specifications, store settings, and default admin user.
+
+### Changed
+- **Serverless Database Pool Throttling**: Configured dynamic MySQL pool sizing in `src/config/database.ts` (`isServerless ? 2 : 10`), `maxIdle: 1`, `idleTimeout: 20000`, and added connection release guards in `ensureTablesExist()` to avoid exhausting connection quotas on cloud providers (Aiven MySQL, Vercel).
+- **Dead Unsplash Image URL Replacement**: Sanitized fallback and seed image URLs, replacing dead Unsplash asset `photo-1611591475140-be38b794ff8d` with `/assets/images/occasion-festive.webp` to eliminate browser console 404 errors.
+
+---
+
 ## [1.1.0] — 2026-10-06
 
 ### Added
