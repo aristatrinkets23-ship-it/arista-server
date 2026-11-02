@@ -26,6 +26,7 @@ export const getPublicSettingsController = async (req: Request, res: Response, n
       invoicePrefix: settings.invoicePrefix
     };
 
+    res.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
     return res.status(200).json({
       success: true,
       data: publicData
@@ -42,6 +43,7 @@ export const getPublicSettingsController = async (req: Request, res: Response, n
 export const getAdminSettingsController = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const settings = await getStoreSettings(true);
+    res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
       data: settings
@@ -69,7 +71,8 @@ export const updateAdminSettingsController = async (req: Request, res: Response,
       const updated = await updateStoreSettings(updates);
       logger.info(`Store settings updated by Admin [${(req as any).user?.email || 'admin'}]`);
 
-      return res.status(200).json({
+      res.set('Cache-Control', 'no-store');
+    return res.status(200).json({
         success: true,
         message: 'Store settings successfully updated and saved to database.',
         data: updated

@@ -18,6 +18,7 @@ export const getHomepageConfig = async (req: Request, res: Response, next: NextF
       });
     }
 
+    res.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
     return res.status(200).json({
       success: true,
       data: configMap,
@@ -52,6 +53,7 @@ export const updateHomepageConfig = async (req: Request, res: Response, next: Ne
 
     logger.info(`Admin updated homepage config for key: ${sectionKey}`);
 
+    res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
       message: 'Homepage configuration updated successfully.',

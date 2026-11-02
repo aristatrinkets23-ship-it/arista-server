@@ -450,7 +450,14 @@ export const checkDatabaseConnection = async (): Promise<boolean> => {
   try {
     connection = await pool.getConnection();
     logger.info('Successfully connected to MySQL database pool.');
-    await ensureTablesExist(connection);
+    // Fast check: verify if schema exists to avoid running 25+ DDL queries on every cold start
+    const [tables]: any = await connection.query("SHOW TABLES LIKE 'products'");
+    if (Array.isArray(tables) && tables.length > 0 && process.env.FORCE_DB_MIGRATION !== 'true') {
+      logger.info('Database schema verified. Skipping redundant startup table checks.');
+    } else {
+      logger.info('Schema not detected or forced. Ensuring database tables exist...');
+      await ensureTablesExist(connection);
+    }
     hasCheckedDb = true;
     return true;
   } catch (err: any) {

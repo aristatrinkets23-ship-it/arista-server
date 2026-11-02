@@ -53,57 +53,74 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
     }
 
     const [rows]: any = await pool.query(query, queryParams);
-    const mappedRows = await Promise.all(
-      (rows || []).map(async (row: any) => {
-        const finalImage = row.image && row.image.trim() !== '' ? row.image : (row.image || '');
-        try {
-          const [imgs]: any = await pool.query(
-            `SELECT image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`,
-            [row.id]
-          );
-          const imagesList = imgs && imgs.length > 0
-            ? imgs.map((i: any) => i.image_url)
-            : [finalImage];
+    let imgsByProductId: Record<number, string[]> = {};
+    let specsByProductId: Record<number, any[]> = {};
 
-          const [specs]: any = await pool.query(
-            `SELECT spec_label as label, spec_value as value FROM product_specifications WHERE product_id = ?`,
-            [row.id]
-          );
+    if (rows && rows.length > 0) {
+      const productIds = rows.map((r: any) => r.id);
+      try {
+        const [[allImgs], [allSpecs]]: any = await Promise.all([
+          pool.query(
+            `SELECT product_id, image_url FROM product_images WHERE product_id IN (?) ORDER BY sort_order ASC`,
+            [productIds]
+          ),
+          pool.query(
+            `SELECT product_id, spec_label as label, spec_value as value FROM product_specifications WHERE product_id IN (?)`,
+            [productIds]
+          )
+        ]);
 
-          let parsedMaterials: string[] = [];
-          if (Array.isArray(row.materials)) {
-            parsedMaterials = row.materials;
-          } else if (typeof row.materials === 'string' && row.materials.trim() !== '') {
-            try {
-              parsedMaterials = JSON.parse(row.materials);
-            } catch (e) {
-              parsedMaterials = row.materials.split(',').map((s: string) => s.trim()).filter(Boolean);
-            }
+        if (Array.isArray(allImgs)) {
+          for (const img of allImgs) {
+            if (!imgsByProductId[img.product_id]) imgsByProductId[img.product_id] = [];
+            imgsByProductId[img.product_id].push(img.image_url);
           }
-
-          return {
-            ...row,
-            category: row.category_name || row.category || '',
-            image: finalImage,
-            images: imagesList,
-            materials: parsedMaterials,
-            careGuide: row.care_guide || row.careGuide || '',
-            shippingInfo: row.shipping_info || row.shippingInfo || '',
-            specifications: specs || []
-          };
-        } catch (err) {
-          return {
-            ...row,
-            category: row.category_name || row.category || '',
-            image: finalImage,
-            images: [finalImage],
-            careGuide: row.care_guide || row.careGuide || '',
-            shippingInfo: row.shipping_info || row.shippingInfo || '',
-            specifications: []
-          };
         }
-      })
-    );
+
+        if (Array.isArray(allSpecs)) {
+          for (const spec of allSpecs) {
+            if (!specsByProductId[spec.product_id]) specsByProductId[spec.product_id] = [];
+            specsByProductId[spec.product_id].push({ label: spec.label, value: spec.value });
+          }
+        }
+      } catch (batchErr) {
+        // Fallback gracefully
+      }
+    }
+
+    const mappedRows = (rows || []).map((row: any) => {
+      const finalImage = row.image && row.image.trim() !== '' ? row.image : (row.image || '');
+      const imagesList = (imgsByProductId[row.id] && imgsByProductId[row.id].length > 0)
+        ? imgsByProductId[row.id]
+        : [finalImage];
+      const specsList = specsByProductId[row.id] || [];
+
+      let parsedMaterials: string[] = [];
+      if (Array.isArray(row.materials)) {
+        parsedMaterials = row.materials;
+      } else if (typeof row.materials === 'string' && row.materials.trim() !== '') {
+        try {
+          parsedMaterials = JSON.parse(row.materials);
+        } catch (e) {
+          parsedMaterials = row.materials.split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+      }
+
+      return {
+        ...row,
+        category: row.category_name || row.category || '',
+        image: finalImage,
+        images: imagesList,
+        materials: parsedMaterials,
+        careGuide: row.care_guide || row.careGuide || '',
+        shippingInfo: row.shipping_info || row.shippingInfo || '',
+        specifications: specsList
+      };
+    });
+
+    if (includeInactive !== 'true') {
+      res.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+    }
 
     return res.status(200).json({ success: true, count: mappedRows.length, data: mappedRows });
   } catch (err) {
