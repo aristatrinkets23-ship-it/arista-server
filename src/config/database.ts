@@ -14,11 +14,21 @@ const useSsl =
     Boolean(process.env.DB_HOST) &&
     !['localhost', '127.0.0.1'].includes(process.env.DB_HOST || ''));
 
+const isServerless =
+  Boolean(process.env.VERCEL) ||
+  Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+  process.env.NODE_ENV === 'production';
+
+const defaultConnectionLimit = isServerless ? 2 : 10;
+const configuredLimit = process.env.DB_CONNECTION_LIMIT ? Number(process.env.DB_CONNECTION_LIMIT) : defaultConnectionLimit;
+
 const poolConfig: mysql.PoolOptions = process.env.DATABASE_URL
   ? {
       uri: process.env.DATABASE_URL,
       waitForConnections: true,
-      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
+      connectionLimit: configuredLimit,
+      maxIdle: isServerless ? 1 : 5,
+      idleTimeout: 20000,
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
@@ -31,7 +41,9 @@ const poolConfig: mysql.PoolOptions = process.env.DATABASE_URL
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'defaultdb',
       waitForConnections: true,
-      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
+      connectionLimit: configuredLimit,
+      maxIdle: isServerless ? 1 : 5,
+      idleTimeout: 20000,
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
@@ -430,15 +442,23 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
   }
 };
 
+let hasCheckedDb = false;
+
 export const checkDatabaseConnection = async (): Promise<boolean> => {
+  if (hasCheckedDb) return true;
+  let connection: mysql.PoolConnection | null = null;
   try {
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
     logger.info('Successfully connected to MySQL database pool.');
     await ensureTablesExist(connection);
-    connection.release();
+    hasCheckedDb = true;
     return true;
   } catch (err: any) {
     logger.error(`Database connection failed: ${err.message}`);
     return false;
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 };
