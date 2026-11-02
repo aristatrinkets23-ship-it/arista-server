@@ -330,7 +330,7 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
     try {
       const [result]: any = await pool.query(
         `INSERT INTO categories (name, slug, description, image, item_count) VALUES (?, ?, ?, ?, 0)`,
-        [trimmedName, cleanSlug, description || '', image || '/assets/images/hero-categories.jpg']
+        [trimmedName, cleanSlug, description || '', image || '/assets/images/hero-categories.webp']
       );
       logger.info(`Category created in database: ${trimmedName} (ID: ${result.insertId})`);
       return res.status(201).json({

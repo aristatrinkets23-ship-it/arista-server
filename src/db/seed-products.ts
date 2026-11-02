@@ -54,7 +54,7 @@ const categoriesData: SeedCategory[] = [
     name: 'Bracelets & Bangles',
     slug: 'bracelets',
     description: 'Classic tennis bracelets, stacked gold bangles, and artisanal cuffs.',
-    image: 'https://images.unsplash.com/photo-1611591475140-be38b794ff8d?auto=format&fit=crop&w=800&q=80'
+    image: '/assets/images/occasion-festive.webp'
   }
 ];
 
@@ -162,7 +162,7 @@ const productsData: SeedProduct[] = [
     image: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=900&q=80',
     galleryImages: [
       'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=900&q=80',
-      'https://images.unsplash.com/photo-1611591475140-be38b794ff8d?auto=format&fit=crop&w=900&q=80'
+      '/assets/images/occasion-festive.webp'
     ],
     specifications: [
       { label: 'Metal', value: '18K Warm Gold' },
@@ -297,9 +297,9 @@ const productsData: SeedProduct[] = [
     materials: '18K White Gold, 52 Round Diamonds',
     careGuide: 'Professional annual check for clasp tension recommended.',
     shippingInfo: 'Insured priority courier delivery.',
-    image: 'https://images.unsplash.com/photo-1611591475140-be38b794ff8d?auto=format&fit=crop&w=900&q=80',
+    image: '/assets/images/occasion-festive.webp',
     galleryImages: [
-      'https://images.unsplash.com/photo-1611591475140-be38b794ff8d?auto=format&fit=crop&w=900&q=80',
+      '/assets/images/occasion-festive.webp',
       'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&w=900&q=80'
     ],
     specifications: [
@@ -326,7 +326,7 @@ const productsData: SeedProduct[] = [
     image: 'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=900&q=80',
     galleryImages: [
       'https://images.unsplash.com/photo-1573408301185-9146fe634ad0?auto=format&fit=crop&w=900&q=80',
-      'https://images.unsplash.com/photo-1611591475140-be38b794ff8d?auto=format&fit=crop&w=900&q=80'
+      '/assets/images/occasion-festive.webp'
     ],
     specifications: [
       { label: 'Metal Finish', value: '18K Rose Gold' },
