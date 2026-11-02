@@ -2,13 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 
 export function getDefaultPlaceholder(nameOrCategory?: string): string {
-  if (!nameOrCategory) return '/assets/images/precious-jewellery-hero.jpg';
+  if (!nameOrCategory) return '/assets/images/precious-jewellery-hero.webp';
   const s = nameOrCategory.toLowerCase();
-  if (s.includes('ring')) return '/assets/images/occasion-daily-wear.jpg';
-  if (s.includes('necklace') || s.includes('pendant') || s.includes('choker')) return '/assets/images/occasion-wedding.jpg';
-  if (s.includes('earring') || s.includes('stud') || s.includes('hoop')) return '/assets/images/occasion-gifting.jpg';
-  if (s.includes('bracelet') || s.includes('bangle') || s.includes('cuff')) return '/assets/images/occasion-festive.jpg';
-  return '/assets/images/precious-jewellery-hero.jpg';
+  if (s.includes('ring')) return '/assets/images/occasion-daily-wear.webp';
+  if (s.includes('necklace') || s.includes('pendant') || s.includes('choker')) return '/assets/images/occasion-wedding.webp';
+  if (s.includes('earring') || s.includes('stud') || s.includes('hoop')) return '/assets/images/occasion-gifting.webp';
+  if (s.includes('bracelet') || s.includes('bangle') || s.includes('cuff')) return '/assets/images/occasion-festive.webp';
+  return '/assets/images/precious-jewellery-hero.webp';
 }
 
 /**

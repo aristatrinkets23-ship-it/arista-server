@@ -158,7 +158,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
 
     await connection.query(`
       INSERT IGNORE INTO \`homepage_config\` (\`section_key\`, \`section_label\`, \`image\`) VALUES
-      ('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.jpg');
+      ('editorial_photo', 'Artisanal Excellence Photo', '/assets/images/editorial-artisanal-craft.webp');
     `);
 
     // 8. Create wishlist_items table if not exists
@@ -412,6 +412,19 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
 
     // User Addresses migrations
     try { await connection.query(`ALTER TABLE \`user_addresses\` ADD COLUMN \`is_default\` BOOLEAN NOT NULL DEFAULT FALSE;`); } catch (e) { }
+
+    // Auto-Sanitize deprecated/dead Unsplash image URLs to local assets
+    try {
+      await connection.query(
+        "UPDATE `categories` SET `image` = '/assets/images/occasion-festive.webp' WHERE `image` LIKE '%1611591475140%' OR `image` LIKE '%be38b794ff8d%'"
+      );
+      await connection.query(
+        "UPDATE `products` SET `image` = '/assets/images/occasion-festive.webp' WHERE `image` LIKE '%1611591475140%' OR `image` LIKE '%be38b794ff8d%'"
+      );
+      await connection.query(
+        "UPDATE `product_images` SET `image_url` = '/assets/images/occasion-festive.webp' WHERE `image_url` LIKE '%1611591475140%' OR `image_url` LIKE '%be38b794ff8d%'"
+      );
+    } catch (e) { }
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
   }
