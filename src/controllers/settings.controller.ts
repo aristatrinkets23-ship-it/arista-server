@@ -26,7 +26,7 @@ export const getPublicSettingsController = async (req: Request, res: Response, n
       invoicePrefix: settings.invoicePrefix
     };
 
-    res.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    res.set('Cache-Control', 'no-cache');
     return res.status(200).json({
       success: true,
       data: publicData

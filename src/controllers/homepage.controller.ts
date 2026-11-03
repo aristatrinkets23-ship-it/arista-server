@@ -35,7 +35,9 @@ export const getHomepageConfig = async (req: Request, res: Response, next: NextF
  */
 export const updateHomepageConfig = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { sectionKey, image } = req.body;
+    const sectionKey = req.body.sectionKey || req.body.section_key;
+    const image = req.body.image;
+    const sectionLabel = req.body.sectionLabel || req.body.section_label || 'Editorial Section Photo';
 
     if (!sectionKey || !image) {
       return res.status(400).json({
@@ -47,8 +49,8 @@ export const updateHomepageConfig = async (req: Request, res: Response, next: Ne
     await pool.query(
       `INSERT INTO homepage_config (section_key, section_label, image)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE image = VALUES(image), updated_at = CURRENT_TIMESTAMP`,
-      [sectionKey, 'Editorial Section Photo', image]
+       ON DUPLICATE KEY UPDATE image = ?, section_label = ?, updated_at = CURRENT_TIMESTAMP`,
+      [sectionKey, sectionLabel, image, image, sectionLabel]
     );
 
     logger.info(`Admin updated homepage config for key: ${sectionKey}`);

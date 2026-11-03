@@ -51,48 +51,36 @@ export const getStoreSettings = async (forceRefresh = false): Promise<AllStoreSe
     return cachedSettings;
   }
 
-  try {
-    const raw = await fetchAllSettingsFromDb();
+  const raw = await fetchAllSettingsFromDb();
 
-    const gstPercentage = Number(raw['gst_percentage']) || 3.0;
-    const deliveryCharge = Number(raw['delivery_charge']) !== undefined && !isNaN(Number(raw['delivery_charge']))
-      ? Number(raw['delivery_charge'])
-      : 50.0;
-    const freeDeliveryThreshold = Number(raw['free_delivery_threshold']) !== undefined && !isNaN(Number(raw['free_delivery_threshold']))
-      ? Number(raw['free_delivery_threshold'])
-      : 600.0;
+  const gstPercentage = Number(raw['gst_percentage']) || 0;
+  const deliveryCharge = raw['delivery_charge'] !== undefined && raw['delivery_charge'] !== '' ? Number(raw['delivery_charge']) : 0;
+  const freeDeliveryThreshold = raw['free_delivery_threshold'] !== undefined && raw['free_delivery_threshold'] !== '' ? Number(raw['free_delivery_threshold']) : 0;
 
-    cachedSettings = {
-      gstNumber: raw['gst_number'] || '24AAACA1234A1Z5',
-      gstPercentage,
-      deliveryCharge,
-      freeDeliveryThreshold,
-      companyName: raw['company_name'] || 'Arista Trinkets',
-      companyAddress: raw['company_address'] || 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001',
-      companyPhone: raw['company_phone'] || '9016134899',
-      companyEmail: raw['company_email'] || 'info@aristatrinkets.com',
-      companyTiming: raw['company_timing'] || 'Mon – Sat: 10:00 AM – 7:00 PM IST',
-      invoicePrefix: raw['invoice_prefix'] || 'INV-',
-      ...raw
-    };
+  const gstNumber = raw['gst_number'] ?? '';
+  const companyName = raw['company_name'] ?? '';
+  const companyAddress = raw['company_address'] ?? '';
+  const companyPhone = raw['company_phone'] ?? '';
+  const companyEmail = raw['company_email'] ?? '';
+  const companyTiming = raw['company_timing'] ?? '';
+  const invoicePrefix = raw['invoice_prefix'] ?? 'INV-';
 
-    cacheExpiry = now + CACHE_TTL_MS;
-    return cachedSettings;
-  } catch (err: any) {
-    logger.warn(`Failed to fetch store_settings from DB: ${err.message}. Using safe defaults.`);
-    return {
-      gstNumber: '24AAACA1234A1Z5',
-      gstPercentage: 3.0,
-      deliveryCharge: 50.0,
-      freeDeliveryThreshold: 600.0,
-      companyName: 'Arista Trinkets',
-      companyAddress: 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001',
-      companyPhone: '9016134899',
-      companyEmail: 'info@aristatrinkets.com',
-      companyTiming: 'Mon – Sat: 10:00 AM – 7:00 PM IST',
-      invoicePrefix: 'INV-'
-    };
-  }
+  cachedSettings = {
+    gstNumber,
+    gstPercentage,
+    deliveryCharge,
+    freeDeliveryThreshold,
+    companyName,
+    companyAddress,
+    companyPhone,
+    companyEmail,
+    companyTiming,
+    invoicePrefix,
+    ...raw
+  };
+
+  cacheExpiry = now + CACHE_TTL_MS;
+  return cachedSettings;
 };
 
 export const updateStoreSettings = async (
@@ -107,39 +95,38 @@ export const updateStoreSettings = async (
   }
 
   // Validate numeric fields
-  if (updates['delivery_charge'] !== undefined) {
+  if (updates['delivery_charge'] !== undefined && updates['delivery_charge'] !== null && String(updates['delivery_charge']).trim() !== '') {
     const dc = Number(updates['delivery_charge']);
     if (isNaN(dc) || dc < 0) {
       throw new Error('Delivery charge must be a valid non-negative number.');
     }
   }
 
-  if (updates['free_delivery_threshold'] !== undefined) {
+  if (updates['free_delivery_threshold'] !== undefined && updates['free_delivery_threshold'] !== null && String(updates['free_delivery_threshold']).trim() !== '') {
     const fdt = Number(updates['free_delivery_threshold']);
     if (isNaN(fdt) || fdt < 0) {
       throw new Error('Free delivery threshold must be a valid non-negative number.');
     }
   }
 
-  if (updates['gst_percentage'] !== undefined) {
+  if (updates['gst_percentage'] !== undefined && updates['gst_percentage'] !== null && String(updates['gst_percentage']).trim() !== '') {
     const gp = Number(updates['gst_percentage']);
     if (isNaN(gp) || gp < 0 || gp > 100) {
       throw new Error('GST percentage must be between 0 and 100.');
     }
   }
 
-  const entries = Object.entries(updates);
-  for (const [key, value] of entries) {
+  for (const [key, value] of Object.entries(updates)) {
     const stringVal = value !== null && value !== undefined ? String(value).trim() : '';
     await pool.query(
       `INSERT INTO store_settings (setting_key, setting_value)
        VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
-      [key, stringVal]
+       ON DUPLICATE KEY UPDATE setting_value = ?, updated_at = CURRENT_TIMESTAMP`,
+      [key, stringVal, stringVal]
     );
   }
 
-  // Invalidate memory cache
+  // Invalidate memory cache immediately
   cachedSettings = null;
   cacheExpiry = 0;
 

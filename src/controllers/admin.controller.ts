@@ -37,17 +37,44 @@ export const getAdminMetrics = async (req: Request, res: Response, next: NextFun
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
   let connection: any = null;
   try {
-    const { name, category, categoryId, price, compareAtPrice, badge, metalType, gemstone, inStock, stockQuantity, description, materials, careGuide, shippingInfo, image, specifications, images } = req.body;
+    const {
+      name,
+      category,
+      categoryId,
+      price,
+      compareAtPrice,
+      badge,
+      metalType,
+      gemstone,
+      inStock,
+      stockQuantity,
+      description,
+      materials,
+      careGuide,
+      shippingInfo,
+      image,
+      specifications,
+      images
+    } = req.body;
 
-    if (!name || !price || !image) {
-      return res.status(400).json({ success: false, message: 'Product name, price, and primary image are required.' });
+    const finalName = name ? String(name).trim() : '';
+    const finalPrice = price !== undefined ? Number(price) : NaN;
+    const finalImage = image ? String(image).trim() : '';
+    const finalCompareAt = (compareAtPrice !== undefined && compareAtPrice !== null && String(compareAtPrice).trim() !== '')
+      ? Number(compareAtPrice)
+      : (req.body.compare_at_price !== undefined && req.body.compare_at_price !== null && String(req.body.compare_at_price).trim() !== ''
+        ? Number(req.body.compare_at_price)
+        : null);
+
+    if (!finalName || isNaN(finalPrice) || finalPrice <= 0 || !finalImage) {
+      return res.status(400).json({ success: false, message: 'Valid product name, price (>0), and primary image are required.' });
     }
 
-    if (compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice !== '' && Number(price) > Number(compareAtPrice)) {
+    if (finalCompareAt !== null && !isNaN(finalCompareAt) && finalPrice > finalCompareAt) {
       return res.status(400).json({ success: false, message: 'Product Price (₹ INR) cannot be greater than Compare-At Price (₹ INR).' });
     }
 
-    let slug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+    let slug = finalName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     if (!slug) {
       slug = `product-${Date.now()}`;
     }
@@ -67,7 +94,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       candidateSlug = `${slug}-${suffix}`;
     }
 
-    let finalCategoryId = categoryId || null;
+    let finalCategoryId = categoryId || req.body.category_id || null;
     if (!finalCategoryId && category) {
       try {
         const [cats]: any = await connection.query(
@@ -80,18 +107,48 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       } catch (err) { }
     }
 
-    const parsedStockNew = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
-      ? Math.max(0, Number(stockQuantity))
+    const rawStock = stockQuantity ?? req.body.stock_quantity;
+    const parsedStockNew = (rawStock !== undefined && rawStock !== null && String(rawStock).trim() !== '' && !isNaN(Number(rawStock)))
+      ? Math.max(0, Number(rawStock))
       : 10;
-    const calculatedInStockNew = parsedStockNew > 0 ? (inStock !== false ? 1 : 0) : 0;
-    const isActiveValNew = (req.body.isActive !== undefined) ? (req.body.isActive ? 1 : 0) : ((req.body.available !== undefined) ? (req.body.available ? 1 : 0) : 1);
+    const isStockRequested = inStock !== undefined ? inStock : (req.body.in_stock !== undefined ? req.body.in_stock : true);
+    const calculatedInStockNew = parsedStockNew > 0 ? (isStockRequested !== false ? 1 : 0) : 0;
+    const isActiveValNew = (req.body.isActive !== undefined)
+      ? (req.body.isActive ? 1 : 0)
+      : ((req.body.available !== undefined)
+        ? (req.body.available ? 1 : 0)
+        : ((req.body.is_active !== undefined) ? (req.body.is_active ? 1 : 0) : 1));
+
+    const finalCareGuide = careGuide ?? req.body.care_guide ?? '';
+    const finalShippingInfo = shippingInfo ?? req.body.shipping_info ?? '';
+    const finalMetalType = metalType ?? req.body.metal_type ?? '18K Warm Gold';
+    const finalGemstone = gemstone ?? req.body.gemstone ?? null;
+    const finalBadge = badge ?? req.body.badge ?? null;
+    const finalMaterials = materials ?? req.body.materialsStr;
 
     await connection.beginTransaction();
 
     const [result]: any = await connection.query(
       `INSERT INTO products (name, slug, category_id, price, compare_at_price, badge, metal_type, gemstone, in_stock, stock_quantity, is_active, description, materials, care_guide, shipping_info, image)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, slug, finalCategoryId, price, compareAtPrice || null, badge || null, metalType || '18K Warm Gold', gemstone || null, calculatedInStockNew, parsedStockNew, isActiveValNew, description || '', typeof materials === 'string' ? materials : JSON.stringify(materials || []), careGuide || '', shippingInfo || '', image]
+      [
+        finalName,
+        slug,
+        finalCategoryId,
+        finalPrice,
+        finalCompareAt,
+        finalBadge,
+        finalMetalType,
+        finalGemstone,
+        calculatedInStockNew,
+        parsedStockNew,
+        isActiveValNew,
+        description || '',
+        typeof finalMaterials === 'string' ? finalMaterials : JSON.stringify(finalMaterials || []),
+        finalCareGuide,
+        finalShippingInfo,
+        finalImage
+      ]
     );
 
     const productId = result.insertId;
@@ -164,6 +221,8 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       price,
       compareAtPrice,
       badge,
+      metalType,
+      gemstone,
       inStock,
       stockQuantity,
       isActive,
@@ -178,11 +237,21 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       images
     } = req.body;
 
-    if (price !== undefined && compareAtPrice !== undefined && compareAtPrice !== null && compareAtPrice !== '' && Number(price) > Number(compareAtPrice)) {
+    const finalPrice = price !== undefined ? Number(price) : undefined;
+    const finalCompareAt = (compareAtPrice !== undefined && compareAtPrice !== null && String(compareAtPrice).trim() !== '')
+      ? Number(compareAtPrice)
+      : (req.body.compare_at_price !== undefined && req.body.compare_at_price !== null && String(req.body.compare_at_price).trim() !== ''
+        ? Number(req.body.compare_at_price)
+        : null);
+
+    if (finalPrice !== undefined && finalCompareAt !== null && !isNaN(finalCompareAt) && finalPrice > finalCompareAt) {
       return res.status(400).json({ success: false, message: 'Product Price (₹ INR) cannot be greater than Compare-At Price (₹ INR).' });
     }
 
     try {
+      const [oldProd]: any = await pool.query(`SELECT category_id FROM products WHERE id = ?`, [id]);
+      const oldCatId = oldProd && oldProd.length > 0 ? oldProd[0].category_id : null;
+
       let categoryId = null;
       if (category) {
         const [cats]: any = await pool.query(
@@ -194,7 +263,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         }
       }
 
-      let formattedMaterials = materials;
+      let formattedMaterials = materials ?? req.body.materialsStr;
       if (!formattedMaterials && materialsStr && typeof materialsStr === 'string') {
         formattedMaterials = materialsStr.split(',').map((s: string) => s.trim()).filter(Boolean);
       }
@@ -202,17 +271,27 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
         ? formattedMaterials
         : JSON.stringify(formattedMaterials || []);
 
-      const parsedStock = (stockQuantity !== undefined && stockQuantity !== null && String(stockQuantity).trim() !== '' && !isNaN(Number(stockQuantity)))
-        ? Math.max(0, Number(stockQuantity))
+      const rawStock = stockQuantity ?? req.body.stock_quantity;
+      const parsedStock = (rawStock !== undefined && rawStock !== null && String(rawStock).trim() !== '' && !isNaN(Number(rawStock)))
+        ? Math.max(0, Number(rawStock))
         : null;
 
+      const isStockRequested = inStock !== undefined ? inStock : req.body.in_stock;
       const calculatedInStock = parsedStock !== null
         ? (parsedStock > 0 ? 1 : 0)
-        : (inStock !== false ? 1 : 0);
+        : (isStockRequested !== undefined ? (isStockRequested !== false ? 1 : 0) : null);
 
       const isActiveVal = (isActive !== undefined)
         ? (isActive ? 1 : 0)
-        : ((available !== undefined) ? (available ? 1 : 0) : null);
+        : ((available !== undefined)
+          ? (available ? 1 : 0)
+          : ((req.body.is_active !== undefined) ? (req.body.is_active ? 1 : 0) : null));
+
+      const finalCareGuide = careGuide ?? req.body.care_guide ?? '';
+      const finalShippingInfo = shippingInfo ?? req.body.shipping_info ?? '';
+      const finalMetalType = metalType ?? req.body.metal_type ?? null;
+      const finalGemstone = gemstone ?? req.body.gemstone ?? null;
+      const finalBadge = badge ?? req.body.badge ?? null;
 
       await pool.query(
         `UPDATE products SET 
@@ -221,7 +300,9 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           price = COALESCE(?, price), 
           compare_at_price = ?, 
           badge = ?, 
-          in_stock = ?, 
+          metal_type = COALESCE(?, metal_type),
+          gemstone = COALESCE(?, gemstone),
+          in_stock = COALESCE(?, in_stock), 
           stock_quantity = COALESCE(?, stock_quantity), 
           is_active = COALESCE(?, is_active),
           description = COALESCE(?, description), 
@@ -232,18 +313,20 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          name,
+          name ? String(name).trim() : null,
           categoryId,
-          price,
-          compareAtPrice || null,
-          badge || null,
+          finalPrice,
+          finalCompareAt,
+          finalBadge,
+          finalMetalType,
+          finalGemstone,
           calculatedInStock,
           parsedStock,
           isActiveVal,
-          description || '',
+          description !== undefined ? description : '',
           materialsValue,
-          careGuide || '',
-          shippingInfo || '',
+          finalCareGuide,
+          finalShippingInfo,
           image,
           id
         ]
@@ -255,7 +338,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           if (spec.label && spec.value) {
             await pool.query(
               `INSERT INTO product_specifications (product_id, spec_label, spec_value) VALUES (?, ?, ?)`,
-              [id, spec.label, spec.value]
+              [id, String(spec.label).trim(), String(spec.value).trim()]
             );
           }
         }
@@ -267,6 +350,18 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           await pool.query(
             `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
             [id, images[i], i]
+          );
+        }
+      }
+
+      // Sync category item counts for both previous and new categories
+      const targetCatId = categoryId || oldCatId;
+      if (targetCatId || oldCatId) {
+        const catIdsToSync = Array.from(new Set([targetCatId, oldCatId].filter(Boolean)));
+        for (const cId of catIdsToSync) {
+          await pool.query(
+            `UPDATE categories SET item_count = (SELECT COUNT(*) FROM products WHERE category_id = ? AND (is_active = 1 OR is_active IS NULL)) WHERE id = ?`,
+            [cId, cId]
           );
         }
       }
@@ -725,7 +820,8 @@ export const updateAdminProfile = async (req: Request, res: Response, next: Next
         );
       }
     } catch (dbErr: any) {
-      logger.warn(`MySQL admin profile update warning: ${dbErr.message}`);
+      logger.error(`MySQL admin profile update error: ${dbErr.message}`);
+      return res.status(500).json({ success: false, message: dbErr.message || 'Failed to update admin profile in database.' });
     }
 
     const token = jwt.sign(
