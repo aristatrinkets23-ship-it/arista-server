@@ -16,7 +16,7 @@ export function getDefaultPlaceholder(nameOrCategory?: string): string {
  */
 export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { category, sort, search, includeInactive } = req.query;
+    const { category, sort, search, includeInactive, limit, page, offset } = req.query;
 
     let query = `
       SELECT p.*, c.name as category_name, c.slug as category_slug
@@ -50,6 +50,13 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
       query += ` ORDER BY (CASE WHEN UPPER(p.badge) = 'NEW' THEN 1 ELSE 0 END) DESC, p.created_at DESC, p.id DESC`;
     } else {
       query += ` ORDER BY p.id DESC`;
+    }
+
+    if (limit) {
+      const pageLimit = Math.max(1, Math.min(200, Number(limit)));
+      const pageOffset = offset ? Math.max(0, Number(offset)) : (page ? (Math.max(1, Number(page)) - 1) * pageLimit : 0);
+      query += ` LIMIT ? OFFSET ?`;
+      queryParams.push(pageLimit, pageOffset);
     }
 
     const [rows]: any = await pool.query(query, queryParams);
@@ -201,11 +208,7 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
       ORDER BY c.id ASC
     `);
 
-    for (const cat of rows || []) {
-      try {
-        await pool.query(`UPDATE categories SET item_count = ? WHERE id = ?`, [cat.item_count, cat.id]);
-      } catch (e) {}
-    }
+    // Precomputed item_count from SQL subquery (RULE-001: No queries in loops)
 
     const mappedCats = (rows || []).map((c: any) => ({
       ...c,

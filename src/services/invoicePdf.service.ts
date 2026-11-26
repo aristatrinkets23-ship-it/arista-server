@@ -77,6 +77,19 @@ const numberToWordsIndian = (num: number): string => {
 const fmtRs = (n: number) =>
   'Rs. ' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const gstStateMap: Record<string, string> = {
+  '01': 'Jammu & Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh',
+  '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan',
+  '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh',
+  '13': 'Nagaland', '14': 'Manipur', '15': 'Mizoram', '16': 'Tripura',
+  '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal', '20': 'Jharkhand',
+  '21': 'Odisha', '22': 'Chhattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat',
+  '25': 'Daman & Diu', '26': 'Dadra & Nagar Haveli', '27': 'Maharashtra',
+  '28': 'Andhra Pradesh', '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep',
+  '32': 'Kerala', '33': 'Tamil Nadu', '34': 'Puducherry', '35': 'Andaman & Nicobar',
+  '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh'
+};
+
 /**
  * Generates an elegant, professional A4 Tax Invoice PDF and writes it to a Writable stream (e.g. Express Response).
  * Features atelier branding, gold accents, clean cards, and strict coordinate grids with ZERO text overlap.
@@ -225,7 +238,7 @@ export const generateInvoicePdf = (
          .fillColor(cMuted)
          .text(`Phone: ${order.customer_phone || 'N/A'}`, margin + 10, curY + 36, { width: colW - 20 })
          .text(`Email: ${order.customer_email || 'N/A'}`, margin + 10, curY + 48, { width: colW - 20 })
-         .text(`Place of Supply: ${order.state || 'Gujarat'} (State Code)`, margin + 10, curY + 60, { width: colW - 20 });
+         .text(`Place of Supply: ${order.state || order.city || 'India'}`, margin + 10, curY + 60, { width: colW - 20 });
 
       // Right Card: Delivered & Shipped To
       const rightColX = margin + colW + 14;
@@ -283,16 +296,7 @@ export const generateInvoicePdf = (
 
       curY += thH;
 
-      const items = (Array.isArray(order.items) && order.items.length > 0)
-        ? order.items
-        : [{
-            product_name: 'Demi-Fine Jewellery Piece',
-            metal_type: '18K Warm Gold',
-            quantity: 1,
-            unit_price: Number(order.subtotal) || Number(order.total_amount) || 0,
-            total_price: Number(order.subtotal) || Number(order.total_amount) || 0,
-            hsn_code: '7117'
-          }];
+      const items = Array.isArray(order.items) ? order.items : [];
 
       items.forEach((item, idx) => {
         const rowH = 24;
@@ -354,7 +358,10 @@ export const generateInvoicePdf = (
       const tax         = Number(order.tax)          || 0;
       const totalAmount = Number(order.total_amount)  || (subtotal + shippingFee + tax);
 
-      const isGujarat = (order.state || '').trim().toLowerCase().includes('gujarat');
+      const gstCode = (settings.gstNumber || '').trim().substring(0, 2);
+      const sellerState = (gstStateMap[gstCode] || '').toLowerCase();
+      const buyerState = (order.state || '').trim().toLowerCase();
+      const isIntraState = !sellerState || !buyerState ? true : (buyerState.includes(sellerState) || sellerState.includes(buyerState));
       const gstRate   = Number(settings.gstPercentage) || 3.0;
 
       // Words card on left
@@ -394,7 +401,7 @@ export const generateInvoicePdf = (
       drawSumRow('Items Subtotal:', fmtRs(subtotal));
       drawSumRow('Delivery & Insurance:', shippingFee === 0 ? 'FREE' : fmtRs(shippingFee));
 
-      if (isGujarat) {
+      if (isIntraState) {
         const halfRate = (gstRate / 2).toFixed(1);
         const halfTax  = tax / 2;
         drawSumRow(`CGST (${halfRate}%):`, fmtRs(halfTax));
@@ -418,11 +425,41 @@ export const generateInvoicePdf = (
       const boxW    = (contentWidth - 14) / 2;
       const termsW  = boxW - 20;
 
+      // Derive jurisdiction dynamically from store settings & GSTIN
+      const deriveJurisdiction = (): string => {
+        if (settings.jurisdiction && String(settings.jurisdiction).trim()) {
+          return String(settings.jurisdiction).trim();
+        }
+
+        const addr = (settings.companyAddress || '').trim();
+        const gst = (settings.gstNumber || '').trim().toUpperCase();
+        const stateFromGst = gst.length >= 2 ? gstStateMap[gst.substring(0, 2)] : '';
+
+        if (addr) {
+          const parts = addr.split(/[,;\n]/).map(p => p.trim()).filter(Boolean);
+          const lastPart = parts[parts.length - 1];
+          const words = lastPart.split(/\s+/).filter(Boolean);
+          const cityCandidate = words[words.length - 1];
+          const formattedCity = cityCandidate.charAt(0).toUpperCase() + cityCandidate.slice(1).toLowerCase();
+
+          if (stateFromGst) {
+            return `${formattedCity}, ${stateFromGst}, India`;
+          }
+          return `${formattedCity}, India`;
+        }
+
+        if (stateFromGst) {
+          return `${stateFromGst}, India`;
+        }
+
+        return 'Applicable Courts of Law, India';
+      };
+
       const termsList = [
         '1. Goods once sold are covered under Arista 7-Day Exchange & Quality Assurance.',
         '2. Keep jewellery away from direct perfume, moisture and harsh chemicals.',
-        `3. Queries & concierge: ${settings.companyEmail || 'concierge@aristatrinkets.com'}`,
-        '4. Jurisdiction for disputes: Surat, Gujarat, India.'
+        `3. Queries & concierge: ${settings.companyEmail || 'info@aristatrinkets.com'}`,
+        `4. Jurisdiction for disputes: ${deriveJurisdiction()}.`
       ];
 
       doc.font('Helvetica').fontSize(7.2);
@@ -466,7 +503,7 @@ export const generateInvoicePdf = (
       doc.font('Helvetica-Oblique')
          .fontSize(11)
          .fillColor(cLightGold)
-         .text('Arista Trinkets Authenticated', signX + 10, curY + (bottomH - 46), { width: boxW - 20, align: 'right' });
+         .text(`${settings.companyName || 'Arista Trinkets'} Authenticated`, signX + 10, curY + (bottomH - 46), { width: boxW - 20, align: 'right' });
 
       doc.strokeColor(cBorder).lineWidth(0.5).moveTo(signX + boxW - 130, curY + bottomH - 24).lineTo(signX + boxW - 10, curY + bottomH - 24).stroke();
 

@@ -627,7 +627,8 @@ export const getOrderByNumber = async (req: Request, res: Response, next: NextFu
 export const getMyOrders = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user;
-    const email = req.query.email || (user ? user.email : null);
+    const { email: queryEmail, limit, page, offset } = req.query;
+    const email = queryEmail || (user ? user.email : null);
     const userId = user ? user.id : null;
 
     if (!email && !userId) {
@@ -652,43 +653,61 @@ export const getMyOrders = async (req: Request, res: Response, next: NextFunctio
 
     query += ` ORDER BY o.id DESC`;
 
+    if (limit) {
+      const pageLimit = Math.max(1, Math.min(100, Number(limit)));
+      const pageOffset = offset ? Math.max(0, Number(offset)) : (page ? (Math.max(1, Number(page)) - 1) * pageLimit : 0);
+      query += ` LIMIT ? OFFSET ?`;
+      queryParams.push(pageLimit, pageOffset);
+    }
+
     const [orders]: any = await pool.query(query, queryParams);
 
-    const ordersWithItems = await Promise.all(
-      (orders || []).map(async (order: any) => {
-        const [items]: any = await pool.query(
-          `SELECT oi.id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price,
-                  COALESCE(p.image, '') as product_image,
-                  COALESCE(p.slug, '') as product_slug
-           FROM order_items oi
-           LEFT JOIN products p ON (oi.product_id = p.id OR (oi.product_id IS NULL AND oi.product_name = p.name))
-           WHERE oi.order_id = ?`,
-          [order.id]
-        );
+    const itemsByOrderId: Record<number, any[]> = {};
+    if (orders && orders.length > 0) {
+      const orderIds = orders.map((o: any) => o.id);
+      const [allItems]: any = await pool.query(
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.product_name, oi.unit_price, oi.metal_type, oi.quantity, oi.total_price,
+                COALESCE(p.image, '') as product_image,
+                COALESCE(p.slug, '') as product_slug
+         FROM order_items oi
+         LEFT JOIN products p ON (oi.product_id = p.id OR (oi.product_id IS NULL AND oi.product_name = p.name))
+         WHERE oi.order_id IN (?)
+         ORDER BY oi.id ASC`,
+        [orderIds]
+      );
 
-        const statusSteps = [
-          { status: 'PENDING', label: 'Order Placed', date: order.created_at },
-          { status: 'PROCESSING', label: 'In Progress', date: order.processing_at },
-          { status: 'SHIPPED', label: 'Shipped', date: order.shipped_at },
-          { status: 'DELIVERED', label: 'Delivered', date: order.delivered_at }
-        ];
+      for (const item of allItems || []) {
+        if (!itemsByOrderId[item.order_id]) {
+          itemsByOrderId[item.order_id] = [];
+        }
+        itemsByOrderId[item.order_id].push(item);
+      }
+    }
 
-        const currentIdx = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED'].indexOf(order.order_status);
-        const timeline = statusSteps.map((stepObj, idx) => ({
-          status: stepObj.status,
-          label: stepObj.label,
-          date: stepObj.date || null,
-          completed: idx <= currentIdx && order.order_status !== 'CANCELLED',
-          active: stepObj.status === order.order_status && order.order_status !== 'CANCELLED'
-        }));
+    const ordersWithItems = (orders || []).map((order: any) => {
+      const items = itemsByOrderId[order.id] || [];
+      const statusSteps = [
+        { status: 'PENDING', label: 'Order Placed', date: order.created_at },
+        { status: 'PROCESSING', label: 'In Progress', date: order.processing_at },
+        { status: 'SHIPPED', label: 'Shipped', date: order.shipped_at },
+        { status: 'DELIVERED', label: 'Delivered', date: order.delivered_at }
+      ];
 
-        return {
-          ...order,
-          items: items || [],
-          timeline
-        };
-      })
-    );
+      const currentIdx = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED'].indexOf(order.order_status);
+      const timeline = statusSteps.map((stepObj, idx) => ({
+        status: stepObj.status,
+        label: stepObj.label,
+        date: stepObj.date || null,
+        completed: idx <= currentIdx && order.order_status !== 'CANCELLED',
+        active: stepObj.status === order.order_status && order.order_status !== 'CANCELLED'
+      }));
+
+      return {
+        ...order,
+        items,
+        timeline
+      };
+    });
 
     return res.status(200).json({
       success: true,

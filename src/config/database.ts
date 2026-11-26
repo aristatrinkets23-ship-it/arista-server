@@ -32,6 +32,7 @@ const poolConfig: mysql.PoolOptions = process.env.DATABASE_URL
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
+      timezone: 'Z',
       ssl: useSsl ? { rejectUnauthorized: false } : undefined
     }
   : {
@@ -47,10 +48,20 @@ const poolConfig: mysql.PoolOptions = process.env.DATABASE_URL
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
+      timezone: 'Z',
       ssl: useSsl ? { rejectUnauthorized: false } : undefined
     };
 
 export const pool = mysql.createPool(poolConfig);
+
+// Enforce UTC (+00:00) session timezone on all database connections
+pool.on('connection', (conn: any) => {
+  conn.query("SET time_zone = '+00:00'", (err: any) => {
+    if (err) {
+      logger.warn(`Failed to set session timezone to UTC: ${err.message}`);
+    }
+  });
+});
 
 /**
  * Automatically creates tables if not exists and seeds default admin credentials
@@ -331,7 +342,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
       ['delivery_charge', '50.00'],
       ['free_delivery_threshold', '600.00'],
       ['company_name', 'Arista Trinkets'],
-      ['company_address', 'Studio 101, Jewel Arcade, Near City Centre, Surat, Gujarat - 395001'],
+      ['company_address', 'Studio 101, Jewel Arcade, Near City Centre, Vadodara, Gujarat - 390001'],
       ['company_phone', '9016134899'],
       ['company_email', 'info@aristatrinkets.com'],
       ['company_timing', 'Mon – Sat: 10:00 AM – 7:00 PM IST'],

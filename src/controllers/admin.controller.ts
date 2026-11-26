@@ -899,7 +899,7 @@ export const getAdminUsers = async (req: Request, res: Response, next: NextFunct
   try {
     try {
       const [rows]: any = await pool.query(
-        `SELECT id, name, email, role, DATE_FORMAT(created_at, '%d %b %Y') as createdAt FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') ORDER BY id DESC`
+        `SELECT id, name, email, role, created_at as createdAt FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN') ORDER BY id DESC`
       );
       return res.status(200).json({
         success: true,
@@ -1074,13 +1074,14 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
          o.razorpay_signature,
          o.cancellation_reason,
          o.cancelled_by,
-         DATE_FORMAT(o.created_at, '%d %b %Y %H:%i') AS ordered_at,
-         DATE_FORMAT(o.paid_at, '%d %b %Y %H:%i') AS paid_at,
-         DATE_FORMAT(o.processing_at, '%d %b %Y %H:%i') AS processing_at,
-         DATE_FORMAT(o.shipped_at, '%d %b %Y %H:%i') AS shipped_at,
-         DATE_FORMAT(o.delivered_at, '%d %b %Y %H:%i') AS delivered_at,
-         DATE_FORMAT(o.cancelled_at, '%d %b %Y %H:%i') AS cancelled_at,
-         DATE_FORMAT(o.updated_at, '%d %b %Y %H:%i') AS updated_at
+         o.created_at,
+         o.created_at AS ordered_at,
+         o.paid_at,
+         o.processing_at,
+         o.shipped_at,
+         o.delivered_at,
+         o.cancelled_at,
+         o.updated_at
        FROM orders o
        ${whereClause}
        ORDER BY o.created_at DESC
@@ -1127,29 +1128,38 @@ export const getAdminOrders = async (req: Request, res: Response, next: NextFunc
     );
     const summaryData = summaryResult && summaryResult[0] ? summaryResult[0] : {};
 
-    // Fetch order items for each order
-    const ordersWithItems = await Promise.all(
-      (orders || []).map(async (order: any) => {
-        try {
-          const [items]: any = await pool.query(
-            `SELECT
-               oi.id,
-               oi.product_name,
-               oi.unit_price,
-               oi.metal_type,
-               oi.quantity,
-               oi.total_price
-             FROM order_items oi
-             WHERE oi.order_id = ?
-             ORDER BY oi.id ASC`,
-            [order.id]
-          );
-          return { ...order, items: items || [] };
-        } catch {
-          return { ...order, items: [] };
+    // Batch fetch order items for all page orders (RULE-001 No queries in loops)
+    const adminItemsByOrderId: Record<number, any[]> = {};
+    if (orders && orders.length > 0) {
+      try {
+        const orderIds = orders.map((o: any) => o.id);
+        const [allItems]: any = await pool.query(
+          `SELECT
+             oi.id,
+             oi.order_id,
+             oi.product_name,
+             oi.unit_price,
+             oi.metal_type,
+             oi.quantity,
+             oi.total_price
+           FROM order_items oi
+           WHERE oi.order_id IN (?)
+           ORDER BY oi.id ASC`,
+          [orderIds]
+        );
+        for (const it of allItems || []) {
+          if (!adminItemsByOrderId[it.order_id]) adminItemsByOrderId[it.order_id] = [];
+          adminItemsByOrderId[it.order_id].push(it);
         }
-      })
-    );
+      } catch (itemErr) {
+        // Fallback gracefully
+      }
+    }
+
+    const ordersWithItems = (orders || []).map((order: any) => ({
+      ...order,
+      items: adminItemsByOrderId[order.id] || []
+    }));
 
     return res.status(200).json({
       success: true,
