@@ -79,7 +79,6 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`role\` ENUM('CUSTOMER', 'ADMIN', 'SUPER_ADMIN') NOT NULL DEFAULT 'CUSTOMER',
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_user_email\` (\`email\`),
         INDEX \`idx_user_role\` (\`role\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -108,8 +107,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`image\` LONGTEXT DEFAULT NULL,
         \`item_count\` INT NOT NULL DEFAULT 0,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_category_slug\` (\`slug\`)
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -136,7 +134,6 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (\`category_id\`) REFERENCES \`categories\` (\`id\`) ON DELETE SET NULL,
-        INDEX \`idx_product_slug\` (\`slug\`),
         INDEX \`idx_product_price\` (\`price\`),
         INDEX \`idx_product_stock\` (\`in_stock\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -253,8 +250,6 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`cancelled_by\` VARCHAR(50) DEFAULT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_order_number\` (\`order_number\`),
-        INDEX \`idx_tracking_code\` (\`tracking_code\`),
         INDEX \`idx_order_status\` (\`order_status\`),
         INDEX \`idx_order_user\` (\`user_id\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -330,8 +325,7 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`setting_key\` VARCHAR(100) NOT NULL UNIQUE,
         \`setting_value\` TEXT DEFAULT NULL,
         \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX \`idx_setting_key\` (\`setting_key\`)
+        \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
@@ -364,7 +358,6 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         \`is_active\` TINYINT(1) NOT NULL DEFAULT 1,
         \`subscribed_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         \`unsubscribed_at\` TIMESTAMP NULL DEFAULT NULL,
-        INDEX \`idx_newsletter_email\` (\`email\`),
         INDEX \`idx_newsletter_active\` (\`is_active\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -413,8 +406,23 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
     try { await connection.query(`ALTER TABLE \`orders\` MODIFY COLUMN \`order_status\` ENUM('PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED') NOT NULL DEFAULT 'PENDING';`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`razorpay_signature\` VARCHAR(255) DEFAULT NULL;`); } catch (e) { }
     try { await connection.query(`ALTER TABLE \`orders\` ADD COLUMN \`paid_at\` TIMESTAMP NULL DEFAULT NULL;`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_tracking_code\` (\`tracking_code\`);`); } catch (e) { }
-    try { await connection.query(`ALTER TABLE \`orders\` ADD INDEX \`idx_invoice_number\` (\`invoice_number\`);`); } catch (e) { }
+
+    // Safe cleanup of redundant secondary indexes that duplicate UNIQUE constraints (saves TiDB storage & index cache)
+    const redundantIndexes: [string, string][] = [
+      ['users', 'idx_user_email'],
+      ['categories', 'idx_category_slug'],
+      ['products', 'idx_product_slug'],
+      ['orders', 'idx_order_number'],
+      ['orders', 'idx_tracking_code'],
+      ['orders', 'idx_invoice_number'],
+      ['store_settings', 'idx_setting_key'],
+      ['newsletter_subscribers', 'idx_newsletter_email']
+    ];
+    for (const [table, idx] of redundantIndexes) {
+      try {
+        await connection.query(`ALTER TABLE \`${table}\` DROP INDEX \`${idx}\`;`);
+      } catch (e) { }
+    }
 
     // Backfill invoice_number for past orders if null
     try {
@@ -448,8 +456,45 @@ export const ensureTablesExist = async (connection: mysql.PoolConnection): Promi
         "UPDATE `product_images` SET `image_url` = '/assets/images/occasion-festive.webp' WHERE `image_url` LIKE '%1611591475140%' OR `image_url` LIKE '%be38b794ff8d%'"
       );
     } catch (e) { }
+
+    // Run ephemeral storage pruning on table verification
+    await pruneExpiredDatabaseRecords(connection);
   } catch (err: any) {
     logger.warn(`Table creation check warning: ${err.message}`);
+  }
+};
+
+/**
+ * Prunes expired ephemeral data to conserve storage (e.g. TiDB 5GB limit)
+ */
+export const pruneExpiredDatabaseRecords = async (conn?: mysql.PoolConnection): Promise<void> => {
+  let connection = conn;
+  let shouldRelease = false;
+  try {
+    if (!connection) {
+      connection = await pool.getConnection();
+      shouldRelease = true;
+    }
+
+    // 1. Delete expired OTP / password reset tokens
+    const [resetsResult]: any = await connection.query(`DELETE FROM \`password_resets\` WHERE \`expires_at\` < NOW()`);
+    if (resetsResult?.affectedRows > 0) {
+      logger.info(`Pruned ${resetsResult.affectedRows} expired password reset records.`);
+    }
+
+    // 2. Delete abandoned guest carts older than 30 days
+    const [cartsResult]: any = await connection.query(
+      `DELETE FROM \`cart_items\` WHERE \`user_id\` IS NULL AND \`created_at\` < DATE_SUB(NOW(), INTERVAL 30 DAY)`
+    );
+    if (cartsResult?.affectedRows > 0) {
+      logger.info(`Pruned ${cartsResult.affectedRows} abandoned guest cart items.`);
+    }
+  } catch (err: any) {
+    logger.warn(`Storage maintenance pruning warning: ${err.message}`);
+  } finally {
+    if (shouldRelease && connection) {
+      connection.release();
+    }
   }
 };
 

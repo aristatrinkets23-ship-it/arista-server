@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -67,6 +68,9 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again after 15 minutes.'
 });
 app.use('/api', limiter);
+
+// Serve static image uploads (local fallback when CDN is not active)
+app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
 // 5. API Routes
 app.use('/api/v1', routes);

@@ -34,6 +34,7 @@ import {
 } from '../controllers/cart.controller';
 import { createEnquiry, getEnquiries } from '../controllers/enquiry.controller';
 import { subscribeNewsletter, getNewsletterSubscribers, newsletterLimiter } from '../controllers/newsletter.controller';
+import { uploadImage, getStorageStatus } from '../controllers/upload.controller';
 import { authenticateJwt, optionalAuthenticateJwt, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -117,6 +118,10 @@ router.delete('/admin/users/:id', adminAuthStack, deleteAdminUserById);
 
 // Homepage Config Admin Routes
 router.put('/admin/homepage-config', adminAuthStack, updateHomepageConfig);
+
+// Image Upload & CDN Storage Routes
+router.post('/admin/upload-image', adminAuthStack, uploadImage);
+router.get('/admin/upload-status', adminAuthStack, getStorageStatus);
 
 // Store Settings Admin Routes
 router.get('/admin/settings', adminAuthStack, getAdminSettingsController);

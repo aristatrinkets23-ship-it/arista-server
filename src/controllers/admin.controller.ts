@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { pool } from '../config/database';
 import { logger } from '../utils/logger';
+import { StorageService } from '../services/storage.service';
 import { sendOrderCancelledEmail } from '../services/emailService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'AristaTrinketsJwtSecretKey2026';
@@ -59,7 +60,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 
     const finalName = name ? String(name).trim() : '';
     const finalPrice = price !== undefined ? Number(price) : NaN;
-    const finalImage = image ? String(image).trim() : '';
+    let finalImage = image ? String(image).trim() : '';
     const finalCompareAt = (compareAtPrice !== undefined && compareAtPrice !== null && String(compareAtPrice).trim() !== '')
       ? Number(compareAtPrice)
       : (req.body.compare_at_price !== undefined && req.body.compare_at_price !== null && String(req.body.compare_at_price).trim() !== ''
@@ -68,6 +69,14 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 
     if (!finalName || isNaN(finalPrice) || finalPrice <= 0 || !finalImage) {
       return res.status(400).json({ success: false, message: 'Valid product name, price (>0), and primary image are required.' });
+    }
+
+    // Auto-intercept Base64 payload and store persistent CDN / static image URL
+    if (finalImage.startsWith('data:image')) {
+      try {
+        const uploadRes = await StorageService.uploadImage(finalImage, 'products');
+        finalImage = uploadRes.url;
+      } catch (err) { }
     }
 
     if (finalCompareAt !== null && !isNaN(finalCompareAt) && finalPrice > finalCompareAt) {
@@ -166,14 +175,21 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 
     const imageListToInsert: string[] = [];
     if (images && Array.isArray(images) && images.length > 0) {
-      for (const imgUrl of images) {
+      for (let imgUrl of images) {
         if (imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '') {
-          imageListToInsert.push(imgUrl.trim());
+          let cleanUrl = imgUrl.trim();
+          if (cleanUrl.startsWith('data:image')) {
+            try {
+              const up = await StorageService.uploadImage(cleanUrl, 'products');
+              cleanUrl = up.url;
+            } catch { }
+          }
+          imageListToInsert.push(cleanUrl);
         }
       }
     }
-    if (image && !imageListToInsert.includes(image)) {
-      imageListToInsert.unshift(image);
+    if (finalImage && !imageListToInsert.includes(finalImage)) {
+      imageListToInsert.unshift(finalImage);
     }
 
     for (let i = 0; i < imageListToInsert.length; i++) {
@@ -293,6 +309,14 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       const finalGemstone = gemstone ?? req.body.gemstone ?? null;
       const finalBadge = badge ?? req.body.badge ?? null;
 
+      let finalProductImage = image !== undefined ? (image ? String(image).trim() : null) : undefined;
+      if (finalProductImage && finalProductImage.startsWith('data:image')) {
+        try {
+          const up = await StorageService.uploadImage(finalProductImage, 'products');
+          finalProductImage = up.url;
+        } catch { }
+      }
+
       await pool.query(
         `UPDATE products SET 
           name = COALESCE(?, name), 
@@ -327,7 +351,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           materialsValue,
           finalCareGuide,
           finalShippingInfo,
-          image,
+          finalProductImage !== undefined ? finalProductImage : null,
           id
         ]
       );
@@ -347,10 +371,20 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       if (images && Array.isArray(images)) {
         await pool.query(`DELETE FROM product_images WHERE product_id = ?`, [id]);
         for (let i = 0; i < images.length; i++) {
-          await pool.query(
-            `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
-            [id, images[i], i]
-          );
+          let imgUrl = images[i];
+          if (imgUrl && typeof imgUrl === 'string' && imgUrl.trim() !== '') {
+            let cleanUrl = imgUrl.trim();
+            if (cleanUrl.startsWith('data:image')) {
+              try {
+                const up = await StorageService.uploadImage(cleanUrl, 'products');
+                cleanUrl = up.url;
+              } catch { }
+            }
+            await pool.query(
+              `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
+              [id, cleanUrl, i]
+            );
+          }
         }
       }
 
@@ -423,15 +457,23 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
     }
 
     try {
+      let finalCatImage = image || '/assets/images/hero-categories.webp';
+      if (finalCatImage && finalCatImage.startsWith('data:image')) {
+        try {
+          const up = await StorageService.uploadImage(finalCatImage, 'categories');
+          finalCatImage = up.url;
+        } catch { }
+      }
+
       const [result]: any = await pool.query(
         `INSERT INTO categories (name, slug, description, image, item_count) VALUES (?, ?, ?, ?, 0)`,
-        [trimmedName, cleanSlug, description || '', image || '/assets/images/hero-categories.webp']
+        [trimmedName, cleanSlug, description || '', finalCatImage]
       );
       logger.info(`Category created in database: ${trimmedName} (ID: ${result.insertId})`);
       return res.status(201).json({
         success: true,
         message: 'Category created successfully.',
-        data: { id: result.insertId, name: trimmedName, slug: cleanSlug, image }
+        data: { id: result.insertId, name: trimmedName, slug: cleanSlug, image: finalCatImage }
       });
     } catch (dbErr: any) {
       logger.error(`Category creation DB error: ${dbErr.message}`);
@@ -467,6 +509,14 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
     }
 
     try {
+      let finalCatImage = image !== undefined ? image : undefined;
+      if (finalCatImage && typeof finalCatImage === 'string' && finalCatImage.startsWith('data:image')) {
+        try {
+          const up = await StorageService.uploadImage(finalCatImage, 'categories');
+          finalCatImage = up.url;
+        } catch { }
+      }
+
       const cleanSlug = slug ? slug.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-') : undefined;
       await pool.query(
         `UPDATE categories SET 
@@ -476,7 +526,7 @@ export const updateCategory = async (req: Request, res: Response, next: NextFunc
           image = COALESCE(?, image),
           updated_at = CURRENT_TIMESTAMP
          WHERE id = ? OR slug = ?`,
-        [name ? name.trim() : null, cleanSlug, description, image, id, id]
+        [name ? name.trim() : null, cleanSlug, description, finalCatImage, id, id]
       );
     } catch (dbErr: any) {
       logger.error(`Category update DB error: ${dbErr.message}`);

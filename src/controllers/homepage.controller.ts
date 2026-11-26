@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { pool } from '../config/database';
 import { logger } from '../utils/logger';
+import { StorageService } from '../services/storage.service';
 
 /**
  * Public: Get Homepage Configurations (e.g. editorial image)
@@ -46,11 +47,19 @@ export const updateHomepageConfig = async (req: Request, res: Response, next: Ne
       });
     }
 
+    let finalEditorialImage = image;
+    if (finalEditorialImage && typeof finalEditorialImage === 'string' && finalEditorialImage.startsWith('data:image')) {
+      try {
+        const up = await StorageService.uploadImage(finalEditorialImage, 'banners');
+        finalEditorialImage = up.url;
+      } catch { }
+    }
+
     await pool.query(
       `INSERT INTO homepage_config (section_key, section_label, image)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE image = ?, section_label = ?, updated_at = CURRENT_TIMESTAMP`,
-      [sectionKey, sectionLabel, image, image, sectionLabel]
+      [sectionKey, sectionLabel, finalEditorialImage, finalEditorialImage, sectionLabel]
     );
 
     logger.info(`Admin updated homepage config for key: ${sectionKey}`);
@@ -61,7 +70,7 @@ export const updateHomepageConfig = async (req: Request, res: Response, next: Ne
       message: 'Homepage configuration updated successfully.',
       data: {
         sectionKey,
-        image
+        image: finalEditorialImage
       }
     });
   } catch (err) {
