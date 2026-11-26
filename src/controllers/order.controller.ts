@@ -871,7 +871,7 @@ export const cancelCustomerOrder = async (req: Request, res: Response, next: Nex
     if (currentStatus === 'SHIPPED') {
       return res.status(400).json({
         success: false,
-        message: `Order #${order.order_number} has already been shipped and cannot be cancelled online. Once delivered, you may request a 30-day return or exchange with our atelier concierge.`
+        message: `Order #${order.order_number} has already been shipped and cannot be cancelled online. Once delivered, you may request an exchange or assistance with our atelier concierge.`
       });
     }
 

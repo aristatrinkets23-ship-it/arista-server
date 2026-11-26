@@ -419,7 +419,7 @@ export const generateInvoicePdf = (
       const termsW  = boxW - 20;
 
       const termsList = [
-        '1. Goods once sold are covered under Arista 30-Day Quality Assurance.',
+        '1. Goods once sold are covered under Arista 7-Day Exchange & Quality Assurance.',
         '2. Keep jewellery away from direct perfume, moisture and harsh chemicals.',
         `3. Queries & concierge: ${settings.companyEmail || 'concierge@aristatrinkets.com'}`,
         '4. Jurisdiction for disputes: Surat, Gujarat, India.'
